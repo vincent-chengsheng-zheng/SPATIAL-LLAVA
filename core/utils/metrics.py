@@ -9,7 +9,7 @@ where all values are in [0, 1].
 Usage:
     from core.utils.metrics import iou, rmse, mae, batch_iou
 
-    pred  = torch.tensor([[0.5, 0.5, 0.3, 0.4]])
+    pred = torch.tensor([[0.5, 0.5, 0.3, 0.4]])
     target = torch.tensor([[0.5, 0.5, 0.3, 0.4]])
 
     print(iou(pred, target))    # tensor([1.0])
@@ -33,14 +33,14 @@ def iou(pred: Tensor, target: Tensor) -> Tensor:
     Returns:
         Tensor of shape (N,) — IoU score per sample, values in [0, 1]
     """
-    pred   = pred.float()
+    pred = pred.float()
     target = target.float()
 
     # Convert [x_center, y_center, w, h] → [x1, y1, x2, y2]
-    pred_x1   = pred[:, 0] - pred[:, 2] / 2
-    pred_y1   = pred[:, 1] - pred[:, 3] / 2
-    pred_x2   = pred[:, 0] + pred[:, 2] / 2
-    pred_y2   = pred[:, 1] + pred[:, 3] / 2
+    pred_x1 = pred[:, 0] - pred[:, 2] / 2
+    pred_y1 = pred[:, 1] - pred[:, 3] / 2
+    pred_x2 = pred[:, 0] + pred[:, 2] / 2
+    pred_y2 = pred[:, 1] + pred[:, 3] / 2
 
     target_x1 = target[:, 0] - target[:, 2] / 2
     target_y1 = target[:, 1] - target[:, 3] / 2
@@ -53,14 +53,14 @@ def iou(pred: Tensor, target: Tensor) -> Tensor:
     inter_x2 = torch.min(pred_x2, target_x2)
     inter_y2 = torch.min(pred_y2, target_y2)
 
-    inter_w   = (inter_x2 - inter_x1).clamp(min=0)
-    inter_h   = (inter_y2 - inter_y1).clamp(min=0)
+    inter_w = (inter_x2 - inter_x1).clamp(min=0)
+    inter_h = (inter_y2 - inter_y1).clamp(min=0)
     inter_area = inter_w * inter_h
 
     # Union
-    pred_area   = pred[:, 2]   * pred[:, 3]
+    pred_area = pred[:, 2] * pred[:, 3]
     target_area = target[:, 2] * target[:, 3]
-    union_area  = pred_area + target_area - inter_area
+    union_area = pred_area + target_area - inter_area
 
     # Avoid division by zero
     iou_score = inter_area / union_area.clamp(min=1e-6)
@@ -95,7 +95,7 @@ def rmse(pred: Tensor, target: Tensor) -> Tensor:
     Returns:
         Scalar tensor — RMSE value
     """
-    pred   = pred.float()
+    pred = pred.float()
     target = target.float()
     return torch.sqrt(torch.mean((pred - target) ** 2))
 
@@ -113,7 +113,7 @@ def mae(pred: Tensor, target: Tensor) -> Tensor:
     Returns:
         Scalar tensor — MAE value
     """
-    pred   = pred.float()
+    pred = pred.float()
     target = target.float()
     return torch.mean(torch.abs(pred - target))
 
@@ -139,6 +139,6 @@ def compute_all_metrics(pred: Tensor, target: Tensor) -> dict:
     """
     return {
         "mean_iou": mean_iou(pred, target).item(),
-        "rmse":     rmse(pred, target).item(),
-        "mae":      mae(pred, target).item(),
+        "rmse": rmse(pred, target).item(),
+        "mae": mae(pred, target).item(),
     }

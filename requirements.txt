@@ -1,0 +1,8 @@
+# ── NOTE ──────────────────────────────────────────────────
+# torch and torchvision are installed separately:
+#   - Dockerfile.dev : CPU-only wheels (Mac local dev)
+#   - Cluster        : pre-installed with CUDA support
+# Do NOT add torch here.
+# ──────────────────────────────────────────────────────────
+
+# Dependencies will be added as core/ modules are implemented

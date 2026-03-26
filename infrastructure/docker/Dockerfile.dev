@@ -1,12 +1,13 @@
 # infrastructure/docker/Dockerfile.dev
 #
 # PURPOSE : Local development on Mac (CPU-only)
-# USE FOR : Writing code, unit tests, debugging logic, Jupyter notebooks
-# NOT FOR : Actual model training (use cluster for that)
+# USE FOR : Writing code, running unit tests, debugging logic
+# NOT FOR : Actual model training (use SUTD cluster for that)
+#           Jupyter / Gradio / TensorBoard (not needed locally)
 #
 # Compatible with: Mac Intel + Mac Apple Silicon (M1/M2/M3)
-# Build time     : ~8 minutes
-# Image size     : ~3 GB
+# Build time     : ~5 minutes
+# Image size     : ~2 GB
 
 # ── Base image ────────────────────────────────────────────────────────────────
 # Using plain Python slim instead of pytorch/pytorch because the official
@@ -34,6 +35,7 @@ COPY requirements.txt /tmp/requirements.txt
 
 # Step 2: Install PyTorch CPU-only
 #         --index-url points to CPU wheels (no CUDA, much smaller)
+#         torch/torchvision must NOT be in requirements.txt
 RUN pip install --upgrade pip && \
     pip install \
         torch==2.0.1 \
@@ -45,24 +47,8 @@ RUN pip install --upgrade pip && \
 #         (torch already installed above, pip will skip it if version matches)
 RUN pip install -r /tmp/requirements.txt --no-cache-dir
 
-# ── Development tools ─────────────────────────────────────────────────────────
-RUN pip install \
-    jupyterlab==4.0.9 \
-    ipykernel==6.26.0 \
-    tensorboard==2.15.1 \
-    --no-cache-dir
-
-# ── Jupyter config ────────────────────────────────────────────────────────────
-RUN mkdir -p /root/.jupyter && \
-    echo "c.ServerApp.allow_root = True" >> /root/.jupyter/jupyter_server_config.py && \
-    echo "c.ServerApp.ip = '0.0.0.0'" >> /root/.jupyter/jupyter_server_config.py && \
-    echo "c.ServerApp.token = ''" >> /root/.jupyter/jupyter_server_config.py && \
-    echo "c.ServerApp.password = ''" >> /root/.jupyter/jupyter_server_config.py
-
-# ── Ports ─────────────────────────────────────────────────────────────────────
-EXPOSE 8888   # Jupyter Lab
-EXPOSE 6006   # TensorBoard
-EXPOSE 7860   # Gradio demo
-
 # ── Entrypoint ────────────────────────────────────────────────────────────────
-CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--allow-root", "--no-browser"]
+# Keep container alive in background.
+# To get a shell: docker compose exec dev bash
+# To run tests:   docker compose exec dev python -m pytest tests/
+CMD ["tail", "-f", "/dev/null"]

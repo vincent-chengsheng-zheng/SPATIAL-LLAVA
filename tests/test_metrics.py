@@ -27,15 +27,15 @@ def perfect_pred():
 @pytest.fixture
 def no_overlap_pred():
     """Prediction and target have zero overlap."""
-    pred   = torch.tensor([[0.1, 0.1, 0.1, 0.1]])   # top-left
-    target = torch.tensor([[0.9, 0.9, 0.1, 0.1]])   # bottom-right
+    pred = torch.tensor([[0.1, 0.1, 0.1, 0.1]])   # top-left
+    target = torch.tensor([[0.9, 0.9, 0.1, 0.1]])  # bottom-right
     return pred, target
 
 
 @pytest.fixture
 def partial_pred():
     """Prediction partially overlaps target."""
-    pred   = torch.tensor([[0.5, 0.5, 0.4, 0.4]])
+    pred = torch.tensor([[0.5, 0.5, 0.4, 0.4]])
     target = torch.tensor([[0.6, 0.6, 0.4, 0.4]])
     return pred, target
 
@@ -119,10 +119,8 @@ class TestRMSE:
     def test_rmse_increases_with_error(self):
         """Larger prediction error should give larger RMSE."""
         target = torch.tensor([[0.5, 0.5, 0.4, 0.4]])
-
         small_error = torch.tensor([[0.55, 0.55, 0.4, 0.4]])
-        large_error = torch.tensor([[0.8,  0.8,  0.4, 0.4]])
-
+        large_error = torch.tensor([[0.8, 0.8, 0.4, 0.4]])
         assert rmse(small_error, target) < rmse(large_error, target), \
             "Larger error should produce larger RMSE"
 
@@ -170,5 +168,5 @@ class TestComputeAllMetrics:
         pred, target = perfect_pred
         result = compute_all_metrics(pred, target)
         assert abs(result["mean_iou"] - 1.0) < 1e-5
-        assert abs(result["rmse"]     - 0.0) < 1e-5
-        assert abs(result["mae"]      - 0.0) < 1e-5
+        assert abs(result["rmse"] - 0.0) < 1e-5
+        assert abs(result["mae"] - 0.0) < 1e-5
