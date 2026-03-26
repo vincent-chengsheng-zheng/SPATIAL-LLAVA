@@ -1,0 +1,58 @@
+# ── Large files (never commit these) ──────────────────────
+data/
+*.pkl
+*.pth
+*.pt
+*.safetensors
+*.bin
+
+# ── Checkpoints & results ──────────────────────────────────
+checkpoints/
+results/
+
+# ── Logs ───────────────────────────────────────────────────
+logs/
+*.log
+nohup.out
+
+# ── HuggingFace cache ──────────────────────────────────────
+.cache/
+hf_cache/
+
+# ── Python ─────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Jupyter ─────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Docker ──────────────────────────────────────────────────
+.dockerignore
+
+# ── Environment variables ───────────────────────────────────
+.env
+.env.local
+
+# ── OS files ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ── IDE ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-project
