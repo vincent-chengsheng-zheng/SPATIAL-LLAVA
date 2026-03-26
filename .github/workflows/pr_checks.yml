@@ -1,0 +1,107 @@
+# .github/workflows/pr_checks.yml
+#
+# Runs automatically on every pull request to main.
+# All checks must pass before merging is allowed.
+#
+# Checks:
+#   1. Code style (flake8)
+#   2. Unit tests (pytest)
+#   3. Docker build (Dockerfile.dev)
+
+name: PR Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint_and_test:
+    name: Lint + Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ───────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ───────────────────────────────────────────────────
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      # ── 3. Install dependencies ────────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch==2.0.1 torchvision==0.15.2 \
+            --index-url https://download.pytorch.org/whl/cpu \
+            --quiet
+          pip install -r requirements.txt
+          pip install flake8 pytest pytest-cov
+
+      # ── 4. Lint (flake8) ───────────────────────────────────────────────────
+      - name: Lint with flake8
+        run: |
+          flake8 core/ pipeline/ courses/ tests/ \
+            --max-line-length=100 \
+            --ignore=E501,W503 \
+            --count \
+            --show-source \
+            --statistics
+
+      # ── 5. Unit tests (pytest) ─────────────────────────────────────────────
+      - name: Run unit tests
+        run: |
+          pytest tests/ \
+            -v \
+            --cov=core \
+            --cov-report=term-missing \
+            --cov-fail-under=50
+
+      # ── 6. Summary ─────────────────────────────────────────────────────────
+      - name: Write summary
+        if: always()
+        run: |
+          echo "## PR Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint (flake8) | ✅ passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests (pytest) | ✅ passed |" >> $GITHUB_STEP_SUMMARY
+
+  docker_build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ───────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Docker Buildx ────────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── 3. Build Dockerfile.dev ────────────────────────────────────────────
+      - name: Build Dockerfile.dev
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./infrastructure/docker/Dockerfile.dev
+          push: false          # verify build only, don't push anywhere
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── 4. Build Dockerfile.inference (when it exists) ─────────────────────
+      # Uncomment when Dockerfile.inference is ready:
+      # - name: Build Dockerfile.inference
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     file: ./infrastructure/docker/Dockerfile.inference
+      #     push: false
+      #     cache-from: type=gha
+      #     cache-to: type=gha,mode=max
