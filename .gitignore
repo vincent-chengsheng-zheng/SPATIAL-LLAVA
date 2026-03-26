@@ -1,17 +1,33 @@
 # ── Large files (never commit these) ──────────────────────
-data/
 *.pkl
 *.pth
 *.pt
 *.safetensors
 *.bin
 
-# ── Checkpoints & results ──────────────────────────────────
-checkpoints/
-results/
+# ── Data directory (keep folder, ignore contents) ──────────
+data/*
+!data/.gitkeep
 
-# ── Logs ───────────────────────────────────────────────────
-logs/
+# ── Checkpoints (keep folders, ignore contents) ────────────
+checkpoints/*
+!checkpoints/.gitkeep
+!checkpoints/coursework/
+!checkpoints/coursework/.gitkeep
+!checkpoints/enterprise/
+!checkpoints/enterprise/.gitkeep
+
+# ── Results (keep folders, ignore contents) ────────────────
+results/*
+!results/.gitkeep
+!results/coursework/
+!results/coursework/.gitkeep
+!results/enterprise/
+!results/enterprise/.gitkeep
+
+# ── Logs (keep folder, ignore contents) ────────────────────
+logs/*
+!logs/.gitkeep
 *.log
 nohup.out
 
