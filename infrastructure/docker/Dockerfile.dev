@@ -1,0 +1,68 @@
+# infrastructure/docker/Dockerfile.dev
+#
+# PURPOSE : Local development on Mac (CPU-only)
+# USE FOR : Writing code, unit tests, debugging logic, Jupyter notebooks
+# NOT FOR : Actual model training (use cluster for that)
+#
+# Compatible with: Mac Intel + Mac Apple Silicon (M1/M2/M3)
+# Build time     : ~8 minutes
+# Image size     : ~3 GB
+
+# ── Base image ────────────────────────────────────────────────────────────────
+# Using plain Python slim instead of pytorch/pytorch because the official
+# PyTorch Docker images do NOT support Mac ARM (Apple Silicon).
+# We install PyTorch CPU-only manually below.
+FROM python:3.10-slim
+
+WORKDIR /workspace
+
+# ── System dependencies ───────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y \
+    git \
+    wget \
+    curl \
+    vim \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python dependencies ───────────────────────────────────────────────────────
+# Step 1: Copy requirements first (Docker cache optimization)
+#         If requirements.txt doesn't change, this layer is reused on rebuild.
+COPY requirements.txt /tmp/requirements.txt
+
+# Step 2: Install PyTorch CPU-only
+#         --index-url points to CPU wheels (no CUDA, much smaller)
+RUN pip install --upgrade pip && \
+    pip install \
+        torch==2.0.1 \
+        torchvision==0.15.2 \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --no-cache-dir
+
+# Step 3: Install remaining project dependencies
+#         (torch already installed above, pip will skip it if version matches)
+RUN pip install -r /tmp/requirements.txt --no-cache-dir
+
+# ── Development tools ─────────────────────────────────────────────────────────
+RUN pip install \
+    jupyterlab==4.0.9 \
+    ipykernel==6.26.0 \
+    tensorboard==2.15.1 \
+    --no-cache-dir
+
+# ── Jupyter config ────────────────────────────────────────────────────────────
+RUN mkdir -p /root/.jupyter && \
+    echo "c.ServerApp.allow_root = True" >> /root/.jupyter/jupyter_server_config.py && \
+    echo "c.ServerApp.ip = '0.0.0.0'" >> /root/.jupyter/jupyter_server_config.py && \
+    echo "c.ServerApp.token = ''" >> /root/.jupyter/jupyter_server_config.py && \
+    echo "c.ServerApp.password = ''" >> /root/.jupyter/jupyter_server_config.py
+
+# ── Ports ─────────────────────────────────────────────────────────────────────
+EXPOSE 8888   # Jupyter Lab
+EXPOSE 6006   # TensorBoard
+EXPOSE 7860   # Gradio demo
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--allow-root", "--no-browser"]
