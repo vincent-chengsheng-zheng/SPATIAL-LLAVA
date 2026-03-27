@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install torch==2.0.1 torchvision==0.15.2 \
+          pip install numpy==1.26.4 torch==2.0.1 torchvision==0.15.2 \
             --index-url https://download.pytorch.org/whl/cpu \
             --quiet
           pip install -r requirements.txt
@@ -44,7 +44,7 @@ jobs:
         run: |
           flake8 core/ pipeline/ courses/ tests/ \
             --max-line-length=100 \
-            --ignore=E501,W503, W504\
+            --ignore=E501,W503,W504\
             --count \
             --show-source \
             --statistics
