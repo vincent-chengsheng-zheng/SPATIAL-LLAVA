@@ -44,7 +44,7 @@ jobs:
         run: |
           flake8 core/ pipeline/ courses/ tests/ \
             --max-line-length=100 \
-            --ignore=E501,W503 \
+            --ignore=E501,W503, W504\
             --count \
             --show-source \
             --statistics
