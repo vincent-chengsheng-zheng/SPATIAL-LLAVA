@@ -9,16 +9,6 @@ Or without pytest:
     python tests/test_preprocessing.py
 """
 
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import torch
-import numpy as np
-from PIL import Image
-import tempfile
-import unittest
-
 from core.data.preprocessing import (
     preprocess_image,
     preprocess_image_from_pil,
@@ -28,12 +18,24 @@ from core.data.preprocessing import (
     IMAGE_SIZE,
     IMAGENET_MEAN,
     IMAGENET_STD,
-    LOC_TOKEN,
     MAX_LENGTH,
 )
+import unittest
+import tempfile
+from PIL import Image
+import numpy as np
+import torch
+import sys
+import os
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..")))
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────────────────────
 
 def make_pil_image(width=640, height=480, mode="RGB"):
     """Create a random PIL image for testing."""
@@ -63,6 +65,7 @@ class MockTokenizer:
     Minimal tokenizer mock that mimics HuggingFace tokenizer behaviour.
     Returns deterministic input_ids based on whitespace split.
     """
+
     def __init__(self, max_length=77):
         self.max_length = max_length
 
@@ -83,13 +86,13 @@ class MockTokenizer:
         return {"input_ids": ids}
 
 
-# ── preprocess_image ──────────────────────────────────────────────────────────
+# ── preprocess_image ────────────────────────────────────────────────────
 
 class TestPreprocessImage(unittest.TestCase):
 
     def setUp(self):
-        self.rgb_path  = make_temp_image(640, 480, "RGB",  "JPEG")
-        self.png_path  = make_temp_image(100, 100, "RGB",  "PNG")
+        self.rgb_path = make_temp_image(640, 480, "RGB", "JPEG")
+        self.png_path = make_temp_image(100, 100, "RGB", "PNG")
 
     def tearDown(self):
         for p in [self.rgb_path, self.png_path]:
@@ -122,7 +125,7 @@ class TestPreprocessImage(unittest.TestCase):
         """
         t = preprocess_image(self.rgb_path)
         self.assertGreater(t.min().item(), -4.0)
-        self.assertLess(t.max().item(),    4.0)
+        self.assertLess(t.max().item(), 4.0)
 
     def test_normalization_mean_approx(self):
         """
@@ -139,9 +142,9 @@ class TestPreprocessImage(unittest.TestCase):
             t = preprocess_image(tmp.name)
             for c, (m, s) in enumerate(zip(IMAGENET_MEAN, IMAGENET_STD)):
                 expected = (128 / 255.0 - m) / s
-                actual   = t[c].mean().item()
+                actual = t[c].mean().item()
                 self.assertAlmostEqual(actual, expected, places=1,
-                    msg=f"Channel {c}: expected ~{expected:.3f}, got {actual:.3f}")
+                                       msg=f"Channel {c}: expected ~{expected:.3f}, got {actual:.3f}")
         finally:
             os.remove(tmp.name)
 
@@ -181,39 +184,39 @@ class TestPreprocessImage(unittest.TestCase):
             os.remove(tmp.name)
 
 
-# ── preprocess_image_from_pil ─────────────────────────────────────────────────
+# ── preprocess_image_from_pil ───────────────────────────────────────────
 
 class TestPreprocessImageFromPil(unittest.TestCase):
 
     def test_output_shape(self):
         img = make_pil_image(640, 480, "RGB")
-        t   = preprocess_image_from_pil(img)
+        t = preprocess_image_from_pil(img)
         self.assertEqual(t.shape, (3, IMAGE_SIZE, IMAGE_SIZE))
 
     def test_output_dtype(self):
         img = make_pil_image(200, 200, "RGB")
-        t   = preprocess_image_from_pil(img)
+        t = preprocess_image_from_pil(img)
         self.assertEqual(t.dtype, torch.float32)
 
     def test_rgba_input(self):
         img = make_pil_image(100, 100, "RGBA")
-        t   = preprocess_image_from_pil(img)
+        t = preprocess_image_from_pil(img)
         self.assertEqual(t.shape, (3, IMAGE_SIZE, IMAGE_SIZE))
 
     def test_grayscale_input(self):
         img = make_pil_image(100, 100, "L")
-        t   = preprocess_image_from_pil(img)
+        t = preprocess_image_from_pil(img)
         self.assertEqual(t.shape, (3, IMAGE_SIZE, IMAGE_SIZE))
 
     def test_consistent_with_preprocess_image(self):
         """Both functions should produce identical tensors for the same image."""
-        img  = make_pil_image(200, 200, "RGB")
-        tmp  = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        img = make_pil_image(200, 200, "RGB")
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         img.save(tmp.name)
         tmp.close()
         try:
             t_path = preprocess_image(tmp.name)
-            t_pil  = preprocess_image_from_pil(img)
+            t_pil = preprocess_image_from_pil(img)
             self.assertTrue(
                 torch.allclose(t_path, t_pil, atol=1e-5),
                 "preprocess_image and preprocess_image_from_pil should return identical tensors"
@@ -223,16 +226,16 @@ class TestPreprocessImageFromPil(unittest.TestCase):
 
     def test_small_image(self):
         img = make_pil_image(10, 10, "RGB")
-        t   = preprocess_image_from_pil(img)
+        t = preprocess_image_from_pil(img)
         self.assertEqual(t.shape, (3, IMAGE_SIZE, IMAGE_SIZE))
 
     def test_large_image(self):
         img = make_pil_image(2048, 2048, "RGB")
-        t   = preprocess_image_from_pil(img)
+        t = preprocess_image_from_pil(img)
         self.assertEqual(t.shape, (3, IMAGE_SIZE, IMAGE_SIZE))
 
 
-# ── preprocess_text ───────────────────────────────────────────────────────────
+# ── preprocess_text ─────────────────────────────────────────────────────
 
 class TestPreprocessText(unittest.TestCase):
 
@@ -257,7 +260,7 @@ class TestPreprocessText(unittest.TestCase):
         """
         ids_with = preprocess_text("the chair", self.tokenizer)
         # Manually tokenize without [LOC] to confirm difference
-        raw = f"Find the object referred to: the chair"
+        raw = "Find the object referred to: the chair"
         enc = self.tokenizer(raw, padding="max_length", truncation=True,
                              max_length=MAX_LENGTH, return_tensors="pt")
         ids_without = enc["input_ids"].squeeze(0).long()
@@ -306,14 +309,15 @@ class TestPreprocessText(unittest.TestCase):
         self.assertTrue(torch.equal(ids1, ids2))
 
 
-# ── normalize_bbox ────────────────────────────────────────────────────────────
+# ── normalize_bbox ──────────────────────────────────────────────────────
 
 class TestNormalizeBbox(unittest.TestCase):
 
     def test_docstring_example(self):
         """Verify the exact example from the docstring."""
         bbox = normalize_bbox([100, 50, 300, 200], img_w=640, img_h=480)
-        expected = torch.tensor([0.3125, 0.2604, 0.3125, 0.3125], dtype=torch.float32)
+        expected = torch.tensor(
+            [0.3125, 0.2604, 0.3125, 0.3125], dtype=torch.float32)
         self.assertTrue(
             torch.allclose(bbox, expected, atol=1e-3),
             f"Expected {expected}, got {bbox}"
@@ -338,8 +342,8 @@ class TestNormalizeBbox(unittest.TestCase):
         bbox = normalize_bbox([320, 240, 321, 241], img_w=640, img_h=480)
         self.assertAlmostEqual(bbox[0].item(), 320.5 / 640, places=4)
         self.assertAlmostEqual(bbox[1].item(), 240.5 / 480, places=4)
-        self.assertAlmostEqual(bbox[2].item(), 1.0   / 640, places=4)
-        self.assertAlmostEqual(bbox[3].item(), 1.0   / 480, places=4)
+        self.assertAlmostEqual(bbox[2].item(), 1.0 / 640, places=4)
+        self.assertAlmostEqual(bbox[3].item(), 1.0 / 480, places=4)
 
     def test_values_in_unit_range(self):
         """All normalized values must be in [0, 1]."""
@@ -365,7 +369,7 @@ class TestNormalizeBbox(unittest.TestCase):
         self.assertTrue(torch.allclose(bbox, expected, atol=1e-5))
 
 
-# ── denormalize_bbox ──────────────────────────────────────────────────────────
+# ── denormalize_bbox ────────────────────────────────────────────────────
 
 class TestDenormalizeBbox(unittest.TestCase):
 
@@ -386,11 +390,11 @@ class TestDenormalizeBbox(unittest.TestCase):
     def test_roundtrip(self):
         """normalize → denormalize should recover original bbox (within 1px)."""
         original = [100, 50, 300, 200]
-        norm     = normalize_bbox(original, img_w=640, img_h=480)
+        norm = normalize_bbox(original, img_w=640, img_h=480)
         x1, y1, x2, y2 = denormalize_bbox(norm, img_w=640, img_h=480)
         for got, exp in zip([x1, y1, x2, y2], original):
             self.assertAlmostEqual(got, exp, delta=1,
-                msg=f"Round-trip failed: expected {exp}, got {got}")
+                                   msg=f"Round-trip failed: expected {exp}, got {got}")
 
     def test_clamping_low(self):
         """Normalized values that would go negative are clamped to 0."""
@@ -415,8 +419,8 @@ class TestDenormalizeBbox(unittest.TestCase):
     def test_multiple_roundtrips(self):
         """Test several bboxes to ensure consistent roundtrip accuracy."""
         cases = [
-            ([10,  10,  50,  50],  200, 200),
-            ([0,   0,   640, 480], 640, 480),
+            ([10, 10, 50, 50], 200, 200),
+            ([0, 0, 640, 480], 640, 480),
             ([300, 200, 400, 350], 640, 480),
         ]
         for bbox, w, h in cases:
@@ -424,10 +428,10 @@ class TestDenormalizeBbox(unittest.TestCase):
             x1, y1, x2, y2 = denormalize_bbox(norm, img_w=w, img_h=h)
             for got, exp in zip([x1, y1, x2, y2], bbox):
                 self.assertAlmostEqual(got, exp, delta=1,
-                    msg=f"Roundtrip failed for {bbox} on {w}x{h}: {got} != {exp}")
+                                       msg=f"Roundtrip failed for {bbox} on {w}x{h}: {got} != {exp}")
 
 
-# ── Integration ───────────────────────────────────────────────────────────────
+# ── Integration ─────────────────────────────────────────────────────────
 
 class TestIntegration(unittest.TestCase):
     """End-to-end checks combining multiple preprocessing steps."""
@@ -440,12 +444,13 @@ class TestIntegration(unittest.TestCase):
         img_path = make_temp_image(640, 480, "RGB", "JPEG")
         try:
             img_tensor = preprocess_image(img_path)
-            bbox_norm  = normalize_bbox([100, 50, 300, 200], img_w=640, img_h=480)
+            bbox_norm = normalize_bbox(
+                [100, 50, 300, 200], img_w=640, img_h=480)
 
             self.assertEqual(img_tensor.shape, (3, 384, 384))
-            self.assertEqual(bbox_norm.shape,  (4,))
+            self.assertEqual(bbox_norm.shape, (4,))
             self.assertEqual(img_tensor.dtype, torch.float32)
-            self.assertEqual(bbox_norm.dtype,  torch.float32)
+            self.assertEqual(bbox_norm.dtype, torch.float32)
         finally:
             os.remove(img_path)
 
@@ -453,38 +458,39 @@ class TestIntegration(unittest.TestCase):
         """
         Simulate a single sample: image tensor + tokenized prompt.
         """
-        tokenizer  = MockTokenizer()
-        img        = make_pil_image(320, 240, "RGB")
+        tokenizer = MockTokenizer()
+        img = make_pil_image(320, 240, "RGB")
         img_tensor = preprocess_image_from_pil(img)
-        ids        = preprocess_text("the person on the left", tokenizer)
+        ids = preprocess_text("the person on the left", tokenizer)
 
         self.assertEqual(img_tensor.shape, (3, 384, 384))
-        self.assertEqual(ids.shape,        (MAX_LENGTH,))
+        self.assertEqual(ids.shape, (MAX_LENGTH,))
 
     def test_full_sample_pipeline(self):
         """
         Full pipeline: image + text + bbox → all tensors correct.
         """
         tokenizer = MockTokenizer()
-        img       = make_pil_image(800, 600, "RGBA")  # intentional RGBA
+        img = make_pil_image(800, 600, "RGBA")  # intentional RGBA
 
         img_tensor = preprocess_image_from_pil(img)
-        ids        = preprocess_text("the red car in the background", tokenizer)
-        bbox_norm  = normalize_bbox([200, 100, 600, 500], img_w=800, img_h=600)
+        ids = preprocess_text("the red car in the background", tokenizer)
+        bbox_norm = normalize_bbox([200, 100, 600, 500], img_w=800, img_h=600)
         x1, y1, x2, y2 = denormalize_bbox(bbox_norm, img_w=800, img_h=600)
 
         self.assertEqual(img_tensor.shape, (3, 384, 384))
-        self.assertEqual(ids.shape,        (MAX_LENGTH,))
-        self.assertEqual(bbox_norm.shape,  (4,))
+        self.assertEqual(ids.shape, (MAX_LENGTH,))
+        self.assertEqual(bbox_norm.shape, (4,))
         self.assertIsInstance(x1, int)
 
         # Sanity: denormalized coords should be within original image
-        self.assertGreaterEqual(x1, 0);   self.assertLessEqual(x2, 800)
-        self.assertGreaterEqual(y1, 0);   self.assertLessEqual(y2, 600)
+        self.assertGreaterEqual(x1, 0)
+        self.assertLessEqual(x2, 800)
+        self.assertGreaterEqual(y1, 0)
+        self.assertLessEqual(y2, 600)
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-    

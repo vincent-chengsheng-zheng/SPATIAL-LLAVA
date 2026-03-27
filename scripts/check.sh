@@ -27,7 +27,7 @@ run_lint() {
     echo "── Lint (flake8) ────────────────────────────────────"
     if flake8 core/ pipeline/ courses/ tests/ \
         --max-line-length=100 \
-        --ignore=E501,W503 \
+        --ignore=E501,W503,W504 \
         --count \
         --show-source \
         --statistics; then

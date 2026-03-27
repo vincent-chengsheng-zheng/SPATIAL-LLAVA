@@ -71,4 +71,4 @@ Thumbs.db
 # ── IDE ─────────────────────────────────────────────────────
 .vscode/
 .idea/
-*.sublime-project
+*.sublime-project.coverage

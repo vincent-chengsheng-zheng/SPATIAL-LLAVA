@@ -7,11 +7,20 @@
 
 # Dependencies will be added as core/ modules are implemented
 
-# requirements.txt 加上这几行
+# ── ML dependencies ────────────────────────────────────────
 peft==0.7.1
 transformers==4.35.2
 bitsandbytes==0.41.1
+ 
+# ── Data processing ────────────────────────────────────────
 Pillow==10.1.0
 opencv-python-headless==4.8.1.78
-tqdm==4.66.1
+tqdm>=4.66.3
 pyyaml==6.0.1
+ 
+# ── Dev / testing ──────────────────────────────────────────
+pytest==7.4.3
+pytest-cov==4.1.0
+flake8==6.1.0
+
+datasets>=3.2.0

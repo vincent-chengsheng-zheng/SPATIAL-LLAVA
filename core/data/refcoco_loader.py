@@ -22,7 +22,8 @@ class RefCOCODataset(Dataset):
         self.split = split
         self.pkl_path = os.path.expanduser(pkl_path)
         self.data = self._load(self.pkl_path)
-        print(f"[RefCOCODataset] Loaded {len(self.data)} samples for split='{split}'")
+        print(
+            f"[RefCOCODataset] Loaded {len(self.data)} samples for split='{split}'")
 
     def _load(self, path: str) -> list:
         if not os.path.exists(path):
@@ -35,7 +36,8 @@ class RefCOCODataset(Dataset):
             data = pickle.load(f)
 
         # Validate structure
-        assert isinstance(data, list), "Pickle file must contain a list of samples"
+        assert isinstance(
+            data, list), "Pickle file must contain a list of samples"
         assert len(data) > 0, "Pickle file is empty"
 
         required_keys = {"image", "input_ids", "bbox"}
@@ -51,9 +53,9 @@ class RefCOCODataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Tensor]:
         sample = self.data[idx]
 
-        image     = sample["image"]
+        image = sample["image"]
         input_ids = sample["input_ids"]
-        bbox      = sample["bbox"]
+        bbox = sample["bbox"]
 
         # Ensure correct tensor types
         if not isinstance(image, Tensor):
@@ -64,9 +66,9 @@ class RefCOCODataset(Dataset):
             bbox = torch.tensor(bbox)
 
         return {
-            "image":     image.float(),           # (3, 384, 384) float32
+            "image": image.float(),           # (3, 384, 384) float32
             "input_ids": input_ids.long(),         # (77,)         int64
-            "bbox":      bbox.float(),             # (4,)          float32
+            "bbox": bbox.float(),             # (4,)          float32
         }
 
     def get_dataloader(

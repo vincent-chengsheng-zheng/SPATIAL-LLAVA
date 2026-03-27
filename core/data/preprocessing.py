@@ -23,12 +23,12 @@ from PIL import Image
 import torchvision.transforms as transforms
 
 
-# ── Image ─────────────────────────────────────────────────────────────────────
+# ── Image ───────────────────────────────────────────────────────────────
 
 IMAGE_SIZE = 384
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD  = [0.229, 0.224, 0.225]
+IMAGENET_STD = [0.229, 0.224, 0.225]
 
 _image_transform = transforms.Compose([
     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
@@ -82,9 +82,9 @@ def preprocess_image_from_pil(pil_image) -> Tensor:
     return _image_transform(pil_image)
 
 
-# ── Text ──────────────────────────────────────────────────────────────────────
+# ── Text ────────────────────────────────────────────────────────────────
 
-LOC_TOKEN  = "[LOC]"
+LOC_TOKEN = "[LOC]"
 MAX_LENGTH = 77
 
 
@@ -124,7 +124,7 @@ def preprocess_text(prompt: str, tokenizer) -> Tensor:
     return encoded["input_ids"].squeeze(0).long()
 
 
-# ── Bounding box ──────────────────────────────────────────────────────────────
+# ── Bounding box ────────────────────────────────────────────────────────
 
 def normalize_bbox(
     bbox_xyxy: List[float],
@@ -154,8 +154,8 @@ def normalize_bbox(
 
     x_center = (x1 + x2) / 2.0
     y_center = (y1 + y2) / 2.0
-    w        = x2 - x1
-    h        = y2 - y1
+    w = x2 - x1
+    h = y2 - y1
 
     normalized = torch.tensor(
         [x_center / img_w, y_center / img_h, w / img_w, h / img_h],

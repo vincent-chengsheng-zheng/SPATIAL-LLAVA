@@ -9,26 +9,29 @@ Or:
     python tests/test_refcoco_loader.py
 """
 
+from core.data.refcoco_loader import RefCOCODataset, load_splits
+import unittest
+import tempfile
+import pickle
+import torch
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import torch
-import pickle
-import tempfile
-import unittest
-
-from core.data.refcoco_loader import RefCOCODataset, load_splits
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..")))
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ─────────────────────────────────────────────────────────────
 
 def make_fake_sample():
     """Create one fake preprocessed sample matching expected tensor shapes."""
     return {
-        "image":     torch.rand(3, 384, 384, dtype=torch.float32),
+        "image": torch.rand(3, 384, 384, dtype=torch.float32),
         "input_ids": torch.randint(0, 30000, (77,), dtype=torch.long),
-        "bbox":      torch.rand(4, dtype=torch.float32).clamp(0, 1),
+        "bbox": torch.rand(4, dtype=torch.float32).clamp(0, 1),
     }
 
 
@@ -52,9 +55,9 @@ def make_fake_pkl_raw_lists(num_samples: int = 10) -> str:
     """
     samples = [
         {
-            "image":     torch.rand(3, 384, 384).tolist(),
+            "image": torch.rand(3, 384, 384).tolist(),
             "input_ids": torch.randint(0, 30000, (77,)).tolist(),
-            "bbox":      torch.rand(4).clamp(0, 1).tolist(),
+            "bbox": torch.rand(4).clamp(0, 1).tolist(),
         }
         for _ in range(num_samples)
     ]
@@ -65,7 +68,7 @@ def make_fake_pkl_raw_lists(num_samples: int = 10) -> str:
     return tmp.name
 
 
-# ── RefCOCODataset._load ──────────────────────────────────────────────────────
+# ── RefCOCODataset._load ────────────────────────────────────────────────
 
 class TestLoad(unittest.TestCase):
 
@@ -97,7 +100,8 @@ class TestLoad(unittest.TestCase):
 
     def test_missing_key_raises(self):
         """Samples missing required keys should raise AssertionError."""
-        bad_samples = [{"image": torch.rand(3, 384, 384)}]  # missing input_ids, bbox
+        bad_samples = [{"image": torch.rand(
+            3, 384, 384)}]  # missing input_ids, bbox
         tmp = tempfile.NamedTemporaryFile(suffix=".pkl", delete=False)
         with open(tmp.name, "wb") as f:
             pickle.dump(bad_samples, f)
@@ -132,7 +136,7 @@ class TestLoad(unittest.TestCase):
         self.assertNotIn("~", ds.pkl_path)
 
 
-# ── RefCOCODataset.__len__ ────────────────────────────────────────────────────
+# ── RefCOCODataset.__len__ ──────────────────────────────────────────────
 
 class TestLen(unittest.TestCase):
 
@@ -142,18 +146,18 @@ class TestLen(unittest.TestCase):
             try:
                 ds = RefCOCODataset(pkl)
                 self.assertEqual(len(ds), n,
-                    f"Expected len={n}, got {len(ds)}")
+                                 f"Expected len={n}, got {len(ds)}")
             finally:
                 os.remove(pkl)
 
 
-# ── RefCOCODataset.__getitem__ ────────────────────────────────────────────────
+# ── RefCOCODataset.__getitem__ ──────────────────────────────────────────
 
 class TestGetItem(unittest.TestCase):
 
     def setUp(self):
         self.pkl_path = make_fake_pkl(num_samples=15)
-        self.ds       = RefCOCODataset(self.pkl_path, split="train")
+        self.ds = RefCOCODataset(self.pkl_path, split="train")
 
     def tearDown(self):
         os.remove(self.pkl_path)
@@ -166,9 +170,9 @@ class TestGetItem(unittest.TestCase):
 
     def test_has_required_keys(self):
         sample = self.ds[0]
-        self.assertIn("image",     sample)
+        self.assertIn("image", sample)
         self.assertIn("input_ids", sample)
-        self.assertIn("bbox",      sample)
+        self.assertIn("bbox", sample)
 
     # --- shapes ---
 
@@ -198,7 +202,7 @@ class TestGetItem(unittest.TestCase):
         for i in range(len(self.ds)):
             bbox = self.ds[i]["bbox"]
             self.assertTrue((bbox >= 0).all() and (bbox <= 1).all(),
-                f"Sample {i}: bbox out of [0,1]: {bbox}")
+                            f"Sample {i}: bbox out of [0,1]: {bbox}")
 
     def test_first_and_last_accessible(self):
         """Index 0 and -1 (last) must both work."""
@@ -216,11 +220,11 @@ class TestGetItem(unittest.TestCase):
         """Items stored as Python lists must be converted to tensors."""
         pkl = make_fake_pkl_raw_lists(num_samples=5)
         try:
-            ds     = RefCOCODataset(pkl)
+            ds = RefCOCODataset(pkl)
             sample = ds[0]
-            self.assertIsInstance(sample["image"],     torch.Tensor)
+            self.assertIsInstance(sample["image"], torch.Tensor)
             self.assertIsInstance(sample["input_ids"], torch.Tensor)
-            self.assertIsInstance(sample["bbox"],      torch.Tensor)
+            self.assertIsInstance(sample["bbox"], torch.Tensor)
         finally:
             os.remove(pkl)
 
@@ -228,22 +232,22 @@ class TestGetItem(unittest.TestCase):
         """Converted list samples must still have correct dtypes."""
         pkl = make_fake_pkl_raw_lists(num_samples=5)
         try:
-            ds     = RefCOCODataset(pkl)
+            ds = RefCOCODataset(pkl)
             sample = ds[0]
-            self.assertEqual(sample["image"].dtype,     torch.float32)
+            self.assertEqual(sample["image"].dtype, torch.float32)
             self.assertEqual(sample["input_ids"].dtype, torch.long)
-            self.assertEqual(sample["bbox"].dtype,      torch.float32)
+            self.assertEqual(sample["bbox"].dtype, torch.float32)
         finally:
             os.remove(pkl)
 
 
-# ── RefCOCODataset.get_dataloader ─────────────────────────────────────────────
+# ── RefCOCODataset.get_dataloader ───────────────────────────────────────
 
 class TestGetDataloader(unittest.TestCase):
 
     def setUp(self):
         self.pkl_path = make_fake_pkl(num_samples=20)
-        self.ds       = RefCOCODataset(self.pkl_path, split="train")
+        self.ds = RefCOCODataset(self.pkl_path, split="train")
 
     def tearDown(self):
         os.remove(self.pkl_path)
@@ -254,52 +258,59 @@ class TestGetDataloader(unittest.TestCase):
         self.assertIsInstance(loader, DataLoader)
 
     def test_batch_shape_image(self):
-        loader = self.ds.get_dataloader(batch_size=4, shuffle=False, num_workers=0)
-        batch  = next(iter(loader))
+        loader = self.ds.get_dataloader(
+            batch_size=4, shuffle=False, num_workers=0)
+        batch = next(iter(loader))
         self.assertEqual(batch["image"].shape, (4, 3, 384, 384))
 
     def test_batch_shape_input_ids(self):
-        loader = self.ds.get_dataloader(batch_size=4, shuffle=False, num_workers=0)
-        batch  = next(iter(loader))
+        loader = self.ds.get_dataloader(
+            batch_size=4, shuffle=False, num_workers=0)
+        batch = next(iter(loader))
         self.assertEqual(batch["input_ids"].shape, (4, 77))
 
     def test_batch_shape_bbox(self):
-        loader = self.ds.get_dataloader(batch_size=4, shuffle=False, num_workers=0)
-        batch  = next(iter(loader))
+        loader = self.ds.get_dataloader(
+            batch_size=4, shuffle=False, num_workers=0)
+        batch = next(iter(loader))
         self.assertEqual(batch["bbox"].shape, (4, 4))
 
     def test_batch_dtypes(self):
-        loader = self.ds.get_dataloader(batch_size=2, shuffle=False, num_workers=0)
-        batch  = next(iter(loader))
-        self.assertEqual(batch["image"].dtype,     torch.float32)
+        loader = self.ds.get_dataloader(
+            batch_size=2, shuffle=False, num_workers=0)
+        batch = next(iter(loader))
+        self.assertEqual(batch["image"].dtype, torch.float32)
         self.assertEqual(batch["input_ids"].dtype, torch.long)
-        self.assertEqual(batch["bbox"].dtype,      torch.float32)
+        self.assertEqual(batch["bbox"].dtype, torch.float32)
 
     def test_batch_size_1(self):
-        loader = self.ds.get_dataloader(batch_size=1, shuffle=False, num_workers=0)
-        batch  = next(iter(loader))
+        loader = self.ds.get_dataloader(
+            batch_size=1, shuffle=False, num_workers=0)
+        batch = next(iter(loader))
         self.assertEqual(batch["image"].shape[0], 1)
 
     def test_full_epoch_iterable(self):
         """All batches should be iterable without error."""
-        loader = self.ds.get_dataloader(batch_size=4, shuffle=False, num_workers=0)
-        count  = sum(1 for _ in loader)
+        loader = self.ds.get_dataloader(
+            batch_size=4, shuffle=False, num_workers=0)
+        count = sum(1 for _ in loader)
         self.assertGreater(count, 0)
 
     def test_shuffle_false_deterministic(self):
         """shuffle=False should give same order on two passes."""
-        loader = self.ds.get_dataloader(batch_size=4, shuffle=False, num_workers=0)
-        pass1  = [b["input_ids"][0, 0].item() for b in loader]
-        pass2  = [b["input_ids"][0, 0].item() for b in loader]
+        loader = self.ds.get_dataloader(
+            batch_size=4, shuffle=False, num_workers=0)
+        pass1 = [b["input_ids"][0, 0].item() for b in loader]
+        pass2 = [b["input_ids"][0, 0].item() for b in loader]
         self.assertEqual(pass1, pass2)
 
 
-# ── RefCOCODataset.from_config ────────────────────────────────────────────────
+# ── RefCOCODataset.from_config ──────────────────────────────────────────
 
 class TestFromConfig(unittest.TestCase):
 
     def setUp(self):
-        self.tmp_dir  = tempfile.mkdtemp()
+        self.tmp_dir = tempfile.mkdtemp()
         self.pkl_path = os.path.join(self.tmp_dir, "refcoco_train.pkl")
         samples = [make_fake_sample() for _ in range(8)]
         with open(self.pkl_path, "wb") as f:
@@ -311,21 +322,22 @@ class TestFromConfig(unittest.TestCase):
 
     def test_from_config_train(self):
         config = {"data_dir": self.tmp_dir}
-        ds     = RefCOCODataset.from_config(config, split="train")
+        ds = RefCOCODataset.from_config(config, split="train")
         self.assertEqual(len(ds), 8)
 
     def test_from_config_split_label(self):
         config = {"data_dir": self.tmp_dir}
-        ds     = RefCOCODataset.from_config(config, split="train")
+        ds = RefCOCODataset.from_config(config, split="train")
         self.assertEqual(ds.split, "train")
 
     def test_from_config_missing_file_raises(self):
         config = {"data_dir": self.tmp_dir}
         with self.assertRaises(FileNotFoundError):
-            RefCOCODataset.from_config(config, split="val")  # val pkl not created
+            RefCOCODataset.from_config(
+                config, split="val")  # val pkl not created
 
 
-# ── load_splits ───────────────────────────────────────────────────────────────
+# ── load_splits ─────────────────────────────────────────────────────────
 
 class TestLoadSplits(unittest.TestCase):
 
@@ -333,7 +345,7 @@ class TestLoadSplits(unittest.TestCase):
         self.tmp_dir = tempfile.mkdtemp()
         for split in ["train", "val", "test"]:
             samples = [make_fake_sample() for _ in range(5)]
-            path    = os.path.join(self.tmp_dir, f"refcoco_{split}.pkl")
+            path = os.path.join(self.tmp_dir, f"refcoco_{split}.pkl")
             with open(path, "wb") as f:
                 pickle.dump(samples, f)
 
@@ -344,14 +356,14 @@ class TestLoadSplits(unittest.TestCase):
     def test_returns_all_three_splits(self):
         splits = load_splits(self.tmp_dir)
         self.assertIn("train", splits)
-        self.assertIn("val",   splits)
-        self.assertIn("test",  splits)
+        self.assertIn("val", splits)
+        self.assertIn("test", splits)
 
     def test_each_split_is_dataset(self):
         splits = load_splits(self.tmp_dir)
         for name, ds in splits.items():
             self.assertIsInstance(ds, RefCOCODataset,
-                f"Split '{name}' is not a RefCOCODataset")
+                                  f"Split '{name}' is not a RefCOCODataset")
 
     def test_each_split_has_correct_label(self):
         splits = load_splits(self.tmp_dir)
@@ -367,18 +379,17 @@ class TestLoadSplits(unittest.TestCase):
         """load_splits with explicit splits list should only load those."""
         splits = load_splits(self.tmp_dir, splits=["train", "val"])
         self.assertIn("train", splits)
-        self.assertIn("val",   splits)
+        self.assertIn("val", splits)
         self.assertNotIn("test", splits)
 
     def test_missing_split_raises(self):
-        splits = load_splits(self.tmp_dir, splits=["train"])
+        load_splits(self.tmp_dir, splits=["train"])
         # This should work fine; requesting a nonexistent one raises
         with self.assertRaises(FileNotFoundError):
             load_splits(self.tmp_dir, splits=["nonexistent"])
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Entry point ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-    
