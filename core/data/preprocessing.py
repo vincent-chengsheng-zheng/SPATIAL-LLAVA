@@ -16,8 +16,11 @@ Usage:
     bbox_norm    = normalize_bbox([x1, y1, x2, y2], img_w=640, img_h=480)
 """
 
+import torch
 from torch import Tensor
 from typing import List, Tuple
+from PIL import Image
+import torchvision.transforms as transforms
 
 
 # ── Image ─────────────────────────────────────────────────────────────────────
@@ -25,7 +28,13 @@ from typing import List, Tuple
 IMAGE_SIZE = 384
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
+IMAGENET_STD  = [0.229, 0.224, 0.225]
+
+_image_transform = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+])
 
 
 def preprocess_image(image_path: str) -> Tensor:
@@ -48,11 +57,12 @@ def preprocess_image(image_path: str) -> Tensor:
     Raises:
         FileNotFoundError : If image_path does not exist
     """
-    raise NotImplementedError(
-        "Member 2: implement using PIL + torchvision.transforms. "
-        "Use transforms.Compose([Resize, ToTensor, Normalize(IMAGENET_MEAN, IMAGENET_STD)]). "
-        "Return tensor of shape (3, 384, 384)."
-    )
+    import os
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image not found: {image_path}")
+
+    pil_image = Image.open(image_path).convert("RGB")
+    return _image_transform(pil_image)
 
 
 def preprocess_image_from_pil(pil_image) -> Tensor:
@@ -68,15 +78,13 @@ def preprocess_image_from_pil(pil_image) -> Tensor:
     Returns:
         Tensor of shape (3, 384, 384), dtype=float32
     """
-    raise NotImplementedError(
-        "Member 2: same as preprocess_image() but skip the file load step. "
-        "Accept PIL Image directly."
-    )
+    pil_image = pil_image.convert("RGB")
+    return _image_transform(pil_image)
 
 
 # ── Text ──────────────────────────────────────────────────────────────────────
 
-LOC_TOKEN = "[LOC]"
+LOC_TOKEN  = "[LOC]"
 MAX_LENGTH = 77
 
 
@@ -102,11 +110,18 @@ def preprocess_text(prompt: str, tokenizer) -> Tensor:
         ids = preprocess_text("the cat on the mat", tokenizer)
         # ids.shape == (77,)
     """
-    raise NotImplementedError(
-        "Member 2: format the prompt as 'Find the object referred to: {prompt} [LOC]', "
-        "then tokenize with padding='max_length', truncation=True, max_length=MAX_LENGTH. "
-        "Return input_ids as a long tensor."
+    formatted = f"Find the object referred to: {prompt} {LOC_TOKEN}"
+
+    encoded = tokenizer(
+        formatted,
+        padding="max_length",
+        truncation=True,
+        max_length=MAX_LENGTH,
+        return_tensors="pt",
     )
+
+    # encoded["input_ids"] shape: (1, MAX_LENGTH) → squeeze to (MAX_LENGTH,)
+    return encoded["input_ids"].squeeze(0).long()
 
 
 # ── Bounding box ──────────────────────────────────────────────────────────────
@@ -135,11 +150,19 @@ def normalize_bbox(
         bbox = normalize_bbox([100, 50, 300, 200], img_w=640, img_h=480)
         # tensor([0.3125, 0.2604, 0.3125, 0.3125])
     """
-    raise NotImplementedError(
-        "Member 2: compute x_center=(x1+x2)/2, y_center=(y1+y2)/2, "
-        "w=x2-x1, h=y2-y1, then divide by img_w and img_h respectively. "
-        "Clamp all values to [0, 1]. Return float32 tensor."
+    x1, y1, x2, y2 = bbox_xyxy
+
+    x_center = (x1 + x2) / 2.0
+    y_center = (y1 + y2) / 2.0
+    w        = x2 - x1
+    h        = y2 - y1
+
+    normalized = torch.tensor(
+        [x_center / img_w, y_center / img_h, w / img_w, h / img_h],
+        dtype=torch.float32,
     )
+
+    return normalized.clamp(0.0, 1.0)
 
 
 def denormalize_bbox(
@@ -164,9 +187,16 @@ def denormalize_bbox(
         x1, y1, x2, y2 = denormalize_bbox(tensor([0.5, 0.5, 0.3, 0.4]),
                                            img_w=640, img_h=480)
     """
-    raise NotImplementedError(
-        "Member 2: reverse of normalize_bbox(). "
-        "x_c, y_c, w, h = bbox_norm. "
-        "x1 = int((x_c - w/2) * img_w), etc. "
-        "Clamp to [0, img_w] and [0, img_h]."
-    )
+    x_c, y_c, w, h = bbox_norm.tolist()
+
+    x1 = int((x_c - w / 2) * img_w)
+    y1 = int((y_c - h / 2) * img_h)
+    x2 = int((x_c + w / 2) * img_w)
+    y2 = int((y_c + h / 2) * img_h)
+
+    x1 = max(0, min(x1, img_w))
+    x2 = max(0, min(x2, img_w))
+    y1 = max(0, min(y1, img_h))
+    y2 = max(0, min(y2, img_h))
+
+    return x1, y1, x2, y2
