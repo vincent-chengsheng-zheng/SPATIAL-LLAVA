@@ -34,11 +34,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install numpy==1.26.4 torch==2.0.1 torchvision==0.15.2 \
+          pip install torch==2.11.0 torchvision==0.26.0 \
             --index-url https://download.pytorch.org/whl/cpu \
             --quiet
-          pip install -r requirements.txt
-          pip install flake8 pytest pytest-cov
+          pip install -r requirements.txt --quiet               
 
       - name: Lint with flake8
         run: |

@@ -5,22 +5,27 @@
 # Do NOT add torch here.
 # ──────────────────────────────────────────────────────────
 
-# Dependencies will be added as core/ modules are implemented
-
 # ── ML dependencies ────────────────────────────────────────
 peft==0.7.1
-transformers==4.35.2
+transformers==5.4.0
 bitsandbytes==0.41.1
- 
+accelerate==1.13.0
+safetensors==0.7.0
+
 # ── Data processing ────────────────────────────────────────
+datasets==4.8.4
 Pillow==10.1.0
 opencv-python-headless==4.8.1.78
-tqdm>=4.66.3
+tqdm==4.67.3
 pyyaml==6.0.1
- 
+numpy==1.26.4
+
+# ── Web / deployment ───────────────────────────────────────
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+
 # ── Dev / testing ──────────────────────────────────────────
 pytest==7.4.3
 pytest-cov==4.1.0
 flake8==6.1.0
-
-datasets>=3.2.0
