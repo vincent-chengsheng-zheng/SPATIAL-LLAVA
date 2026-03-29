@@ -72,3 +72,20 @@ Thumbs.db
 .vscode/
 .idea/
 *.sublime-project.coverage
+
+# Generated files
+*.png
+*.jpg
+.DS_Store
+.coverage
+viz_test.png
+
+# Results (regenerated from training)
+results/coursework/*
+results/enterprise/*
+!results/coursework/.gitkeep
+!results/enterprise/.gitkeep
+
+# Checkpoints
+checkpoints/coursework/*.pth
+checkpoints/enterprise/*.pth
