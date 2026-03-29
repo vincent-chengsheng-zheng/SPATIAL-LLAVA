@@ -1,0 +1,81 @@
+# courses/shared/config.yaml
+#
+# Unified training configuration for Spatial-LLaVA.
+#
+# Structure:
+#   base     — shared defaults for both modes
+#   main     — overrides for main training (LoRA + head, 10 epochs)
+#   ablation — overrides for ablation (head only, 3 epochs)
+#
+# Paths use environment variables set by setup_cluster.sh:
+#   $SPATIAL_DATA  → ~/SharedFolder/MDAIE/group6/data/
+#   $SPATIAL_CKPT  → ~/SharedFolder/MDAIE/group6/checkpoints/
+#   $SPATIAL_LOGS  → ~/SharedFolder/MDAIE/group6/logs/
+
+# ── Base (shared defaults) ────────────────────────────────────────────────────
+base:
+  seed: 42
+
+  model:
+    model_id: "llava-hf/llava-1.5-7b-hf"
+    lora_rank: 16           # Used only in main mode
+    hidden_size: 4096       # Vicuna-7B hidden dim
+    regression_intermediate: 512
+
+  training:
+    batch_size: 4           # Safe for V100 32GB with fp16
+    num_workers: 2
+    gradient_accumulation_steps: 4    # Effective batch = 16
+    log_interval: 50                  # Print loss every N steps
+    eval_interval: 1                  # Evaluate every N epochs
+    save_interval: 500                # Save checkpoint every N steps
+
+  optimizer:
+    learning_rate: 1.0e-4
+    warmup_steps: 500
+    weight_decay: 0.01
+    gradient_clip: 1.0
+
+  loss:
+    iou_weight: 1.0
+    l1_weight: 1.0
+
+  hardware:
+    fp16: true              # V100 supports fp16
+    gradient_checkpointing: true
+
+  paths:
+    data_dir: "~/SharedFolder/MDAIE/group6/data/"
+    output_dir: "~/SharedFolder/MDAIE/group6/checkpoints/main/"
+    log_dir: "~/SharedFolder/MDAIE/group6/logs/"
+    hf_home: "~/SharedFolder/MDAIE/group6/hf_cache/"
+
+# ── Main training (61.502 Enterprise + 51.511 GenAI shared) ──────────────────
+# LoRA + regression head, 10 epochs
+# Member 4 uses epoch 10 for FastAPI
+# Member 3 uses epoch 3 checkpoint for Gradio demo
+main:
+  training:
+    num_epochs: 10
+    save_interval: 500      # Save every 500 steps + every epoch end
+
+  optimizer:
+    warmup_steps: 1000      # Longer warmup for full training
+
+  paths:
+    output_dir: "~/SharedFolder/MDAIE/group6/checkpoints/main/"
+
+# ── Ablation (51.511 GenAI — head only, no LoRA) ─────────────────────────────
+# Head Only: LLM completely frozen, only regression head trained
+# Proves contribution of LoRA in the 3-way comparison
+ablation:
+  training:
+    num_epochs: 3
+    save_interval: 200      # Save more frequently (shorter training)
+
+  optimizer:
+    learning_rate: 5.0e-4   # Higher LR since only training small head
+    warmup_steps: 200
+
+  paths:
+    output_dir: "~/SharedFolder/MDAIE/group6/checkpoints/ablation/"
