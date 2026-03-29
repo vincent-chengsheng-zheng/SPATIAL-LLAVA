@@ -89,3 +89,4 @@ results/enterprise/*
 # Checkpoints
 checkpoints/coursework/*.pth
 checkpoints/enterprise/*.pth
+.cache/
