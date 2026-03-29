@@ -90,3 +90,4 @@ results/enterprise/*
 checkpoints/coursework/*.pth
 checkpoints/enterprise/*.pth
 .cache/
+For_Myself.md
