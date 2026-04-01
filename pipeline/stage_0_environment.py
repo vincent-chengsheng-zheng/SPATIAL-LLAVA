@@ -54,33 +54,108 @@ check(
 )
 
 
-# ── 2. Key package imports ────────────────────────────────────────────────────
+# ── 2. Package version check against requirements.txt ────────────────────────
 
-section("Packages")
+section("Package Versions")
 
-packages = {
-    "torch": "pip install torch",
-    "transformers": "pip install transformers==4.35.2",
-    "peft": "pip install peft==0.7.1",
-    "PIL": "pip install Pillow",
-    "cv2": "pip install opencv-python-headless",
-    "gradio": "pip install gradio==4.17.0",
-    "fastapi": "pip install fastapi==0.104.1",
-    "yaml": "pip install pyyaml",
-    "tqdm": "pip install tqdm",
+# Find requirements.txt relative to this script
+script_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.dirname(script_dir)
+req_path = os.path.join(repo_root, "requirements.txt")
+
+
+def parse_requirements(path: str) -> dict:
+    """Parse requirements.txt into {package_name: required_version}."""
+    reqs = {}
+    if not os.path.exists(path):
+        return reqs
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "==" in line:
+                name, version = line.split("==", 1)
+                reqs[name.strip().lower()] = version.strip()
+    return reqs
+
+
+def get_installed_version(package_name: str) -> str:
+    """Get installed version of a package."""
+    try:
+        import importlib.metadata
+        return importlib.metadata.version(package_name)
+    except Exception:
+        return None
+
+
+# Package name mappings (import name → pip name)
+PACKAGE_MAP = {
+    "PIL": "pillow",
+    "cv2": "opencv-python-headless",
+    "yaml": "pyyaml",
+    "sklearn": "scikit-learn",
 }
 
-for pkg, install_cmd in packages.items():
+required = parse_requirements(req_path)
+
+if not required:
+    print(f"{WARN} requirements.txt not found at {req_path}")
+    warnings.append("requirements.txt not found")
+else:
+    print(f"      Checking against: {req_path}")
+    for pip_name, req_version in required.items():
+        installed = get_installed_version(pip_name)
+        if installed is None:
+            # Try common alternatives
+            installed = get_installed_version(pip_name.replace("-", "_"))
+        if installed is None:
+            print(f"{FAIL} {pip_name}: NOT INSTALLED (required {req_version})")
+            print("      → Run: bash shared/scripts/setup_cluster.sh")
+            critical_failures.append(f"{pip_name} not installed")
+        elif installed != req_version:
+            print(f"{WARN} {pip_name}: {installed} (required {req_version})")
+            print("      → Run: bash shared/scripts/setup_cluster.sh")
+            warnings.append(
+                f"{pip_name} version mismatch: {installed} != {req_version}")
+        else:
+            print(f"{PASS} {pip_name}=={installed}")
+
+
+# ── 3. Critical import check ──────────────────────────────────────────────────
+
+section("Critical Imports")
+
+critical_imports = [
+    ("torch", None),
+    ("transformers", "LlavaForConditionalGeneration"),
+    ("peft", "LoraConfig"),
+    ("core.model.spatial_llava", "SpatialLLaVA"),
+    ("core.model.regression_head", "RegressionHead"),
+    ("core.loss.spatial_loss", "spatial_loss"),
+    ("core.utils.metrics", "compute_all_metrics"),
+    ("core.utils.checkpoint", "save_checkpoint"),
+    ("core.data.refcoco_loader", "RefCOCODataset"),
+    ("core.data.preprocessing", "preprocess_image_from_pil"),
+    ("courses.shared.train", "load_config"),
+    ("courses.shared.eval", "generate_comparison_table"),
+]
+
+for module, attr in critical_imports:
     try:
-        __import__(pkg)
-        print(f"{PASS} {pkg}")
-    except ImportError:
-        print(f"{FAIL} {pkg}")
-        print(f"      → Not installed. Run: {install_cmd}")
-        critical_failures.append(f"Missing package: {pkg}")
+        m = __import__(module, fromlist=[attr] if attr else [])
+        if attr:
+            getattr(m, attr)
+        label = f"{module}" + (f".{attr}" if attr else "")
+        print(f"{PASS} {label}")
+    except ImportError as e:
+        label = f"{module}" + (f".{attr}" if attr else "")
+        print(f"{FAIL} {label}")
+        print(f"      → {e}")
+        critical_failures.append(f"Import failed: {label}")
 
 
-# ── 3. CUDA / GPU ─────────────────────────────────────────────────────────────
+# ── 4. CUDA / GPU ─────────────────────────────────────────────────────────────
 
 section("GPU / CUDA")
 
@@ -131,15 +206,12 @@ except Exception as e:
     critical_failures.append("GPU check error")
 
 
-# ── 4. Environment variables ──────────────────────────────────────────────────
+# ── 5. Environment variables ──────────────────────────────────────────────────
 
 section("Environment Variables")
 
 env_vars = {
-    "HF_HOME": (
-        "Run: echo 'export HF_HOME=~/SharedFolder/hf_cache' "
-        ">> ~/.bashrc && source ~/.bashrc"
-    ),
+    "HF_HOME": "Run: bash shared/scripts/setup_cluster.sh",
     "SPATIAL_DATA": "Run: bash shared/scripts/setup_cluster.sh",
     "SPATIAL_CKPT": "Run: bash shared/scripts/setup_cluster.sh",
     "SPATIAL_RESULTS": "Run: bash shared/scripts/setup_cluster.sh",
@@ -154,16 +226,8 @@ for var, fix in env_vars.items():
         fail_msg=fix,
     )
 
-# Warn if HF_HOME is not pointing to SharedFolder
-hf_home = os.environ.get("HF_HOME", "")
-if hf_home and "SharedFolder" not in hf_home:
-    print(f"{WARN} HF_HOME is set but not pointing to SharedFolder")
-    print(f"      → Current: {hf_home}")
-    print("      → Expected: ~/SharedFolder/hf_cache")
-    warnings.append("HF_HOME not pointing to SharedFolder")
 
-
-# ── 5. Storage ────────────────────────────────────────────────────────────────
+# ── 6. Storage ────────────────────────────────────────────────────────────────
 
 section("Storage")
 
@@ -229,7 +293,7 @@ check(
 )
 
 
-# ── 6. Network ────────────────────────────────────────────────────────────────
+# ── 7. Network ────────────────────────────────────────────────────────────────
 
 section("Network")
 
@@ -250,12 +314,13 @@ print("\n" + "=" * 55)
 if not critical_failures:
     print(" Stage 0 passed ✅  Environment is ready.")
     if warnings:
-        print(f"\n Warnings ({len(warnings)}) — non-critical, but worth fixing:")
+        print(f"\n Warnings ({len(warnings)}) — non-critical:")
         for w in warnings:
             print(f"   ⚠ {w}")
+        print("\n To fix warnings:")
+        print("   bash shared/scripts/setup_cluster.sh")
     print("\n Next step:")
-    print("   python pipeline/stage_1_data_preparation.py \\")
-    print("       --output_dir ~/SharedFolder/data/")
+    print("   bash shared/scripts/start_training.sh main")
     print("=" * 55)
     sys.exit(0)
 
@@ -263,7 +328,9 @@ else:
     print(" Stage 0 FAILED ✗  Fix the following before proceeding:\n")
     for i, f in enumerate(critical_failures, 1):
         print(f"   {i}. {f}")
-    print("\n Re-run after fixing:")
+    print("\n Fix by running:")
+    print("   bash shared/scripts/setup_cluster.sh")
+    print("   source ~/.bashrc")
     print("   python pipeline/stage_0_environment.py")
     print("=" * 55)
     sys.exit(1)
