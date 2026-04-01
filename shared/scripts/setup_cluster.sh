@@ -19,6 +19,7 @@ echo "======================================================"
 echo ""
 echo "[1/5] Setting up environment variables..."
 
+touch ~/.bashrc
 if ! grep -q "SPATIAL_BASE" ~/.bashrc; then
     echo "export SPATIAL_BASE=$BASE_DIR" >> ~/.bashrc
     echo "export HF_HOME=$BASE_DIR/hf_cache" >> ~/.bashrc
@@ -51,30 +52,18 @@ mkdir -p $BASE_DIR/results/ablation
 mkdir -p $BASE_DIR/logs
 
 echo "      $BASE_DIR/"
-echo "      ├── hf_cache/           (HuggingFace downloads)"
-echo "      ├── data/               (RefCOCO ~50GB)"
-echo "      ├── checkpoints/main/   (LoRA + head, 10 epochs)"
+echo "      ├── hf_cache/             (HuggingFace downloads)"
+echo "      ├── data/                 (RefCOCO ~50GB)"
+echo "      ├── checkpoints/main/     (LoRA + head, 10 epochs)"
 echo "      ├── checkpoints/ablation/ (head only, 3 epochs)"
 echo "      ├── results/"
 echo "      └── logs/"
 
-# ── Step 3: Install extra Python dependencies ──────────────
+# ── Step 3: Install dependencies from requirements.txt ─────
 echo ""
-echo "[3/5] Installing extra Python dependencies..."
+echo "[3/5] Installing dependencies..."
 
-pip install --quiet \
-    peft==0.7.1 \
-    transformers==4.35.2 \
-    bitsandbytes==0.41.1 \
-    gradio==4.17.0 \
-    fastapi==0.104.1 \
-    uvicorn==0.24.0 \
-    python-multipart==0.0.6 \
-    pyyaml==6.0.1 \
-    tqdm==4.66.1 \
-    Pillow==10.1.0 \
-    opencv-python-headless==4.8.1.78
-
+pip install -r requirements.txt --upgrade --quiet
 echo "      Dependencies installed ✅"
 
 # ── Step 4: Verify GPU access ──────────────────────────────
