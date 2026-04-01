@@ -28,16 +28,15 @@ import hashlib
 import random
 from typing import List, Dict
 
-import torch
-from transformers import AutoTokenizer
-
-# Add repo root to path
+# Add repo root to path so core/ is importable
 sys.path.insert(
     0,
     os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 )
 
-from core.data.preprocessing import (
+import torch  # noqa: E402
+from transformers import AutoTokenizer  # noqa: E402
+from core.data.preprocessing import (  # noqa: E402
     preprocess_image_from_pil,
     preprocess_text,
     normalize_bbox,
