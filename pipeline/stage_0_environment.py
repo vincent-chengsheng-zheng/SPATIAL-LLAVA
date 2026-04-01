@@ -168,6 +168,8 @@ if hf_home and "SharedFolder" not in hf_home:
 section("Storage")
 
 shared = os.path.expanduser("~/SharedFolder")
+base = os.path.expanduser("~/SharedFolder/MDAIE/group6")
+
 check(
     label="~/SharedFolder exists",
     condition=os.path.isdir(shared),
@@ -175,7 +177,8 @@ check(
 )
 
 if os.path.isdir(shared):
-    test_file = os.path.join(shared, ".env_check_tmp")
+    test_file = os.path.join(base, ".env_check_tmp")
+    os.makedirs(base, exist_ok=True)
     try:
         with open(test_file, "w") as f:
             f.write("test")
@@ -199,18 +202,18 @@ if os.path.isdir(shared):
     required_dirs = [
         "hf_cache",
         "data",
-        "checkpoints/coursework",
-        "checkpoints/enterprise",
-        "results/coursework",
-        "results/enterprise",
+        "checkpoints/main",
+        "checkpoints/ablation",
+        "results/main",
+        "results/ablation",
         "logs",
     ]
     for d in required_dirs:
-        full_path = os.path.join(shared, d)
+        full_path = os.path.join(base, d)
         check(
-            label=f"~/SharedFolder/{d}/ exists",
+            label=f"~/SharedFolder/MDAIE/group6/{d}/ exists",
             condition=os.path.isdir(full_path),
-            fail_msg=f"Run: mkdir -p ~/SharedFolder/{d}",
+            fail_msg=f"Run: mkdir -p ~/SharedFolder/MDAIE/group6/{d}",
         )
 
 home = os.path.expanduser("~")
