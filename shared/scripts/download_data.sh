@@ -5,10 +5,11 @@
 # Downloads RefCOCO annotations + COCO images, then preprocesses.
 #
 # Usage:
-#   bash shared/scripts/download_data.sh              # Full pipeline
-#   bash shared/scripts/download_data.sh --check      # Check only
-#   bash shared/scripts/download_data.sh --force      # Force re-download
-#   bash shared/scripts/download_data.sh --skip_coco  # Skip COCO download
+#   bash shared/scripts/download_data.sh                  # Full pipeline
+#   bash shared/scripts/download_data.sh --check          # Check only
+#   bash shared/scripts/download_data.sh --force          # Force re-download
+#   bash shared/scripts/download_data.sh --skip_coco      # Skip COCO download
+#   bash shared/scripts/download_data.sh --extract_only   # Extract zip only
 # =============================================================
 
 set -e
@@ -23,12 +24,14 @@ LOG_DIR=$BASE_DIR/logs
 MODE="auto"
 FORCE_FLAG=""
 SKIP_COCO=""
+EXTRACT_ONLY=false
 
 for arg in "$@"; do
     case $arg in
-        --check)       MODE="check" ;;
-        --force)       MODE="force"; FORCE_FLAG="--force" ;;
-        --skip_coco)   SKIP_COCO="--skip_coco_download" ;;
+        --check)        MODE="check" ;;
+        --force)        MODE="force"; FORCE_FLAG="--force" ;;
+        --skip_coco)    SKIP_COCO="--skip_coco_download" ;;
+        --extract_only) EXTRACT_ONLY=true ;;
     esac
 done
 
@@ -39,6 +42,43 @@ echo " COCO dir : $COCO_DIR"
 echo " Mode     : $MODE"
 echo " Started  : $(date)"
 echo "======================================================"
+
+# ── Extract only mode ──────────────────────────────────────
+if $EXTRACT_ONLY; then
+    ZIP_PATH=$COCO_DIR/train2014.zip
+    echo ""
+    echo "[extract_only] Extracting $ZIP_PATH ..."
+
+    if [[ ! -f "$ZIP_PATH" ]]; then
+        echo "  ❌ Zip not found: $ZIP_PATH"
+        exit 1
+    fi
+
+    python3 - << EOF
+import zipfile, os
+
+zip_path = "$ZIP_PATH"
+dest_dir = "$COCO_DIR"
+
+print(f"  Zip size: {os.path.getsize(zip_path) / 1e9:.1f} GB")
+with zipfile.ZipFile(zip_path, "r") as zf:
+    members = zf.namelist()
+    total = len(members)
+    print(f"  Total files: {total:,}")
+    for i, member in enumerate(members):
+        zf.extract(member, dest_dir)
+        if (i + 1) % 10000 == 0 or (i + 1) == total:
+            print(f"  [{i+1:,}/{total:,}] extracted...")
+print("  ✅ Extraction complete!")
+EOF
+
+    echo ""
+    N=$(ls $COCO_DIR/train2014/*.jpg 2>/dev/null | wc -l)
+    echo "  Images extracted: $N"
+    echo ""
+    echo "  Next: bash shared/scripts/download_data.sh --skip_coco"
+    exit 0
+fi
 
 # ── Check required files ───────────────────────────────────
 echo ""
@@ -75,7 +115,15 @@ if [[ -d "$TRAIN2014_DIR" ]]; then
         echo "  ⚠  COCO train2014 exists but only $N images (expected ~83k)"
     fi
 else
-    echo "  ❌ COCO train2014 not found: $TRAIN2014_DIR"
+    ZIP_PATH=$COCO_DIR/train2014.zip
+    if [[ -f "$ZIP_PATH" ]]; then
+        ZIP_SIZE=$(wc -c < "$ZIP_PATH")
+        echo "  ⚠  train2014/ not extracted yet"
+        echo "     Zip found: $(du -sh $ZIP_PATH | cut -f1)"
+        echo "     Run: bash shared/scripts/download_data.sh --extract_only"
+    else
+        echo "  ❌ COCO train2014 not found: $TRAIN2014_DIR"
+    fi
 fi
 
 # ── Check only mode ────────────────────────────────────────
@@ -89,7 +137,12 @@ if [[ "$MODE" == "check" ]]; then
         exit 0
     else
         echo "======================================================"
-        echo " ❌ Some files missing. Run without --check to download."
+        echo " ❌ Some files missing."
+        if ! $coco_ok && [[ -f "$COCO_DIR/train2014.zip" ]]; then
+            echo " Run: bash shared/scripts/download_data.sh --extract_only"
+        else
+            echo " Run: bash shared/scripts/download_data.sh"
+        fi
         echo "======================================================"
         exit 1
     fi
@@ -99,7 +152,7 @@ fi
 if $all_exist && [[ "$MODE" != "force" ]]; then
     echo ""
     echo "======================================================"
-    echo " ✅ Dataset already complete. Skipping download."
+    echo " ✅ Dataset already complete. Skipping."
     echo " To re-download: bash shared/scripts/download_data.sh --force"
     echo " Ready to train: bash shared/scripts/start_training.sh main"
     echo "======================================================"
@@ -115,7 +168,6 @@ TIMESTAMP=$(date +%Y%m%d_%H%M)
 LOG_FILE=$LOG_DIR/stage1_${TIMESTAMP}.log
 
 echo "  Log: $LOG_FILE"
-echo "  Monitor: tail -f $LOG_FILE"
 echo ""
 
 cd $REPO_DIR
