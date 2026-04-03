@@ -41,7 +41,7 @@ sys.path.insert(
     os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 )
 
-from core.utils.visualization import draw_bboxes
+from core.utils.visualization import draw_bboxes  # noqa: E402
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
