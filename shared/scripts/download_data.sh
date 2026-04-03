@@ -31,7 +31,7 @@ TMP_DATA=/tmp/data
 
 COCO_URL="http://images.cocodataset.org/zips/train2014.zip"
 COCO_EXPECTED_SIZE=13510573713
-COCO_EXPECTED_IMGS=82784
+COCO_EXPECTED_IMGS=82783   # 修正为实际数量（原脚本多写了1）
 
 FORCE_FLAG=""
 MODE="auto"
@@ -121,8 +121,12 @@ fi
 echo ""
 echo "[1/3] COCO zip download..."
 
+# 优化后的下载逻辑：
+# 只有当 zip 不完整 并且  images 也不足 时，才需要重新下载
 if [[ $ZIP_SIZE -eq $COCO_EXPECTED_SIZE ]]; then
-    echo "  ✅ Already complete, skipping download."
+    echo "  ✅ Zip already complete, skipping download."
+elif [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
+    echo "  ✅ Images already extracted ($N_IMGS), skipping download and extraction."
 else
     echo "  Downloading to $TMP_ZIP (~23 min at 8MB/s)..."
     wget -c $COCO_URL -O $TMP_ZIP
@@ -135,7 +139,7 @@ echo "[2/3] Extracting COCO images..."
 
 N_IMGS=$(count_imgs)
 if [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
-    echo "  ✅ Already extracted: $N_IMGS images. Skipping."
+    echo "  ✅ Already extracted: $N_IMGS images. Skipping extraction."
 else
     echo "  Extracting $TMP_ZIP → $TMP_COCO ..."
     echo "  (using Python zipfile — no unzip needed)"
@@ -180,7 +184,7 @@ EOF
     echo "  ✅ Zip removed."
 fi
 
-# ── Step 3: Preprocess ─────────────────────────────────────
+# ── Step 3: Preprocessing ─────────────────────────────────────
 echo ""
 echo "[3/3] Preprocessing RefCOCO → pkl..."
 mkdir -p $TMP_DATA $HF_CACHE $LOG_DIR
