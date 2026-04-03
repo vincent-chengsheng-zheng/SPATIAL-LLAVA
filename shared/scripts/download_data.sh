@@ -20,7 +20,7 @@
 set -e
 
 BASE_DIR=~/SharedFolder/MDAIE/group6
-HF_CACHE=$BASE_DIR/hf_cache
+HF_CACHE=/tmp/hf_cache
 REPO_DIR=~/spatial-llava
 LOG_DIR=$BASE_DIR/logs
 
