@@ -9,17 +9,23 @@ Two-step process:
     3. Preprocess into pickle files
 
 Usage:
-    # Full pipeline
+    # Full pipeline (downloads everything)
     python pipeline/stage_1_data_preparation.py \\
         --output_dir ~/SharedFolder/MDAIE/group6/data/ \\
-        --coco_dir   ~/SharedFolder/MDAIE/group6/coco/ \\
-        --max_samples 60000
+        --coco_dir   ~/SharedFolder/MDAIE/group6/coco/
 
-    # Skip COCO download if already done
+    # COCO already downloaded, skip download
     python pipeline/stage_1_data_preparation.py \\
         --output_dir ~/SharedFolder/MDAIE/group6/data/ \\
         --coco_dir   ~/SharedFolder/MDAIE/group6/coco/ \\
         --skip_coco_download
+
+    # Limit training samples
+    python pipeline/stage_1_data_preparation.py \\
+        --output_dir ~/SharedFolder/MDAIE/group6/data/ \\
+        --coco_dir   ~/SharedFolder/MDAIE/group6/coco/ \\
+        --skip_coco_download \\
+        --max_samples 30000
 
 Output:
     ~/SharedFolder/MDAIE/group6/data/refcoco_train.pkl
@@ -35,7 +41,8 @@ import pickle
 import argparse
 import hashlib
 import random
-import subprocess
+import zipfile
+import urllib.request
 from typing import List, Dict
 
 import torch
@@ -61,9 +68,8 @@ from core.data.preprocessing import (  # noqa: E402
 
 LLAVA_MODEL_ID = "liuhaotian/llava-v1.5-7b"
 REFCOCO_DATASET = "jxu124/refcoco"
-COCO_IMAGES_URL = (
-    "http://images.cocodataset.org/zips/train2014.zip"
-)
+COCO_IMAGES_URL = "http://images.cocodataset.org/zips/train2014.zip"
+COCO_EXPECTED_IMAGES = 83000
 SPLITS = {"train": 0.8, "val": 0.1, "test": 0.1}
 SEED = 42
 
@@ -93,7 +99,6 @@ def verify_output(output_dir: str) -> bool:
     if not os.path.exists(stats):
         print(f"  ✗ Missing: {stats}")
         return False
-    # Check stats reports non-zero samples
     with open(stats) as f:
         s = json.load(f)
     if s.get("total_samples", 0) == 0:
@@ -102,18 +107,24 @@ def verify_output(output_dir: str) -> bool:
     return True
 
 
+def count_coco_images(train2014_dir: str) -> int:
+    """Count .jpg files in COCO train2014 directory."""
+    if not os.path.isdir(train2014_dir):
+        return 0
+    return sum(1 for f in os.listdir(train2014_dir) if f.endswith(".jpg"))
+
+
 def resolve_image_path(raw: dict, coco_dir: str) -> str:
     """
-    Build the full path to the COCO image for a given RefCOCO sample.
+    Build the full path to the COCO image for a RefCOCO sample.
 
     jxu124/refcoco stores image_path as:
         "coco/train2014/COCO_train2014_000000581857.jpg"
 
-    We resolve this against coco_dir:
-        coco_dir/train2014/COCO_train2014_000000581857.jpg
+    Resolved to:
+        <coco_dir>/train2014/COCO_train2014_000000581857.jpg
     """
     image_path = raw.get("image_path", "")
-    # Strip leading "coco/" prefix if present
     parts = image_path.replace("\\", "/").split("/")
     if parts and parts[0].lower() == "coco":
         parts = parts[1:]
@@ -156,66 +167,125 @@ def download_refcoco(hf_home: str):
     return dataset
 
 
-# ── Step 2: Download COCO images ──────────────────────────────────────────────
+# ── Step 2: Download + extract COCO images ────────────────────────────────────
+
+def _download_progress(block_num: int, block_size: int, total_size: int):
+    """Progress callback for urllib.request.urlretrieve."""
+    downloaded = block_num * block_size
+    if total_size > 0:
+        pct = min(downloaded * 100 / total_size, 100)
+        downloaded_gb = downloaded / 1e9
+        total_gb = total_size / 1e9
+        bar = "#" * int(pct / 2)
+        print(
+            f"\r  [{bar:<50}] {pct:5.1f}%  "
+            f"{downloaded_gb:.2f}/{total_gb:.2f} GB",
+            end="",
+            flush=True,
+        )
+
+
+def _extract_zip_python(zip_path: str, dest_dir: str) -> bool:
+    """
+    Extract a zip file using Python's built-in zipfile module.
+    No external tools required.
+    """
+    print(f"\n[Stage 1] Extracting {zip_path} ...")
+    print("  Using Python zipfile (no unzip required)")
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            members = zf.namelist()
+            total = len(members)
+            print(f"  Total files in zip: {total:,}")
+            for i, member in enumerate(members):
+                zf.extract(member, dest_dir)
+                if (i + 1) % 10000 == 0 or (i + 1) == total:
+                    print(f"  [{i + 1:,}/{total:,}] extracted...")
+        return True
+    except zipfile.BadZipFile as e:
+        print(f"  ✗ Bad zip file: {e}")
+        return False
+    except Exception as e:
+        print(f"  ✗ Extraction failed: {e}")
+        return False
+
 
 def download_coco_images(coco_dir: str) -> bool:
     """
-    Download COCO train2014 images if not already present.
+    Download and extract COCO train2014 images if not already present.
 
-    Returns True if images are available (either downloaded or pre-existing).
+    Uses only Python standard library (urllib, zipfile) — no wget/unzip needed.
+
+    Returns True if images are available after this function completes.
     """
     coco_dir = os.path.expanduser(coco_dir)
     train2014_dir = os.path.join(coco_dir, "train2014")
     zip_path = os.path.join(coco_dir, "train2014.zip")
-
-    # Already extracted
-    if os.path.isdir(train2014_dir):
-        n_imgs = len([
-            f for f in os.listdir(train2014_dir)
-            if f.endswith(".jpg")
-        ])
-        if n_imgs > 80000:
-            print(f"\n[Stage 1] COCO images already present: "
-                  f"{n_imgs:,} images in {train2014_dir}")
-            return True
-        else:
-            print(f"\n[Stage 1] ⚠ train2014/ exists but only {n_imgs:,} "
-                  "images found (expected ~83k). Re-downloading.")
-
     os.makedirs(coco_dir, exist_ok=True)
 
-    # Download zip if not present
-    if not os.path.exists(zip_path):
-        print("\n[Stage 1] Downloading COCO train2014 images (~13GB) ...")
-        print(f"  URL : {COCO_IMAGES_URL}")
-        print(f"  Dest: {zip_path}")
-        print("  This will take 30-60 minutes depending on network speed.")
-        result = subprocess.run(
-            ["wget", "-c", COCO_IMAGES_URL, "-O", zip_path],
-            check=False,
+    # ── Already extracted ──────────────────────────────────────────
+    n_imgs = count_coco_images(train2014_dir)
+    if n_imgs >= COCO_EXPECTED_IMAGES:
+        print(
+            f"\n[Stage 1] COCO images already present: "
+            f"{n_imgs:,} images in {train2014_dir}"
         )
-        if result.returncode != 0:
-            print("  ✗ wget failed. Try manually:")
-            print(f"    wget {COCO_IMAGES_URL} -O {zip_path}")
-            return False
-    else:
-        print(f"\n[Stage 1] COCO zip already downloaded: {zip_path}")
+        return True
+    elif os.path.isdir(train2014_dir) and n_imgs > 0:
+        print(
+            f"\n[Stage 1] ⚠ train2014/ exists but only "
+            f"{n_imgs:,} images found (expected ~{COCO_EXPECTED_IMAGES:,})."
+        )
 
-    # Extract
-    print(f"\n[Stage 1] Extracting {zip_path} ...")
-    result = subprocess.run(
-        ["unzip", "-q", zip_path, "-d", coco_dir],
-        check=False,
-    )
-    if result.returncode != 0:
-        print("  ✗ unzip failed.")
+    # ── Download zip ───────────────────────────────────────────────
+    zip_size = os.path.getsize(zip_path) if os.path.exists(zip_path) else 0
+    expected_size = 13510573713  # bytes (verified via curl -sI)
+
+    if zip_size == expected_size:
+        print(
+            f"\n[Stage 1] COCO zip already fully downloaded: "
+            f"{zip_path} ({zip_size / 1e9:.1f} GB)"
+        )
+    else:
+        if zip_size > 0:
+            print(
+                f"\n[Stage 1] Partial zip found ({zip_size / 1e9:.1f} GB). "
+                "Re-downloading..."
+            )
+        else:
+            print("\n[Stage 1] Downloading COCO train2014 images (~13.5 GB)")
+            print(f"  URL : {COCO_IMAGES_URL}")
+            print(f"  Dest: {zip_path}")
+            print("  This will take 30-60 minutes.")
+
+        try:
+            urllib.request.urlretrieve(
+                COCO_IMAGES_URL, zip_path, _download_progress
+            )
+            print()  # newline after progress bar
+            print(
+                f"  ✓ Download complete: "
+                f"{os.path.getsize(zip_path) / 1e9:.1f} GB"
+            )
+        except Exception as e:
+            print(f"\n  ✗ Download failed: {e}")
+            return False
+
+    # ── Extract ────────────────────────────────────────────────────
+    ok = _extract_zip_python(zip_path, coco_dir)
+    if not ok:
         return False
 
-    n_imgs = len([
-        f for f in os.listdir(train2014_dir)
-        if f.endswith(".jpg")
-    ])
-    print(f"  ✓ Extracted {n_imgs:,} images to {train2014_dir}")
+    n_imgs = count_coco_images(train2014_dir)
+    print(f"  ✓ Extraction complete: {n_imgs:,} images in {train2014_dir}")
+
+    if n_imgs < COCO_EXPECTED_IMAGES:
+        print(
+            f"  ⚠ Expected ~{COCO_EXPECTED_IMAGES:,} images "
+            f"but found {n_imgs:,}. Download may be incomplete."
+        )
+        return False
+
     return True
 
 
@@ -226,17 +296,16 @@ def preprocess_sample(raw: dict, tokenizer, coco_dir: str) -> Dict:
     Convert one raw RefCOCO sample into model-ready tensors.
 
     jxu124/refcoco fields used:
-        image_path : relative path to COCO image
-        sentences  : list of dicts with "raw" key
-        bbox       : [x1, y1, x2, y2] pixel coords (xyxy format)
+        image_path     : relative path to COCO image
+        sentences      : list of dicts with "raw" key
+        bbox           : [x1, y1, x2, y2] pixel coords (xyxy format)
         raw_image_info : JSON string with width/height
     """
     # ── Image ──────────────────────────────────────────────────────
     img_full_path = resolve_image_path(raw, coco_dir)
     if not os.path.exists(img_full_path):
         raise FileNotFoundError(
-            f"Image not found: {img_full_path}. "
-            "Run with --coco_dir pointing to the COCO images directory."
+            f"Image not found: {img_full_path}"
         )
     pil_img = Image.open(img_full_path).convert("RGB")
     img_tensor = preprocess_image_from_pil(pil_img)
@@ -254,13 +323,10 @@ def preprocess_sample(raw: dict, tokenizer, coco_dir: str) -> Dict:
 
     # ── BBox ───────────────────────────────────────────────────────
     # jxu124/refcoco bbox is [x1, y1, x2, y2] pixel coords (xyxy)
-    raw_bbox = raw["bbox"]
-    x1, y1, x2, y2 = raw_bbox
+    x1, y1, x2, y2 = raw["bbox"]
 
-    # Get image dimensions
-    img_info_str = raw.get("raw_image_info", "{}")
     try:
-        img_info = json.loads(img_info_str)
+        img_info = json.loads(raw.get("raw_image_info", "{}"))
         img_w = img_info.get("width", pil_img.width)
         img_h = img_info.get("height", pil_img.height)
     except (json.JSONDecodeError, TypeError):
@@ -284,9 +350,7 @@ def preprocess_split(
     coco_dir: str,
     max_samples: int = None,
 ) -> List[Dict]:
-    """
-    Preprocess all (or up to max_samples) samples in one split.
-    """
+    """Preprocess all (or up to max_samples) samples in one split."""
     total_available = len(raw_split)
     total = (
         min(total_available, max_samples)
@@ -331,7 +395,7 @@ def preprocess_split(
     if file_not_found > 0:
         print(
             f"\n  ⚠ {file_not_found} images not found. "
-            "Ensure COCO train2014 is downloaded to --coco_dir."
+            "Ensure COCO train2014 is fully extracted to --coco_dir."
         )
 
     print(f"  ✓ Done: {len(samples)} samples ({errors} skipped)")
@@ -388,7 +452,7 @@ def save_stats(
         "loc_token": LOC_TOKEN,
         "llava_model": LLAVA_MODEL_ID,
         "refcoco_dataset": REFCOCO_DATASET,
-        "coco_dir": args.coco_dir,
+        "coco_dir": str(args.coco_dir),
         "seed": SEED,
         "checksums": checksums,
     }
@@ -446,19 +510,18 @@ def main(args):
     if args.skip_coco_download:
         print("\n[Stage 1] Skipping COCO download (--skip_coco_download)")
         train2014_dir = os.path.join(coco_dir, "train2014")
-        if not os.path.isdir(train2014_dir):
+        n = count_coco_images(train2014_dir)
+        if n == 0:
             print(
-                f"  ✗ {train2014_dir} not found. "
-                "Remove --skip_coco_download or create the directory."
+                f"  ✗ No images found in {train2014_dir}. "
+                "Remove --skip_coco_download or add images manually."
             )
             sys.exit(1)
+        print(f"  ✓ Found {n:,} images in {train2014_dir}")
     else:
         ok = download_coco_images(coco_dir)
         if not ok:
-            print(
-                "\n❌ COCO image download failed. "
-                "Fix the issue and re-run."
-            )
+            print("\n❌ COCO image download/extraction failed.")
             sys.exit(1)
 
     # ── Step 3: Tokenizer ─────────────────────────────────────────
@@ -550,8 +613,8 @@ if __name__ == "__main__":
         "--skip_coco_download",
         action="store_true",
         help=(
-            "Skip downloading COCO images. "
-            "Use if images are already in --coco_dir."
+            "Skip downloading/extracting COCO images. "
+            "Use if images are already in --coco_dir/train2014/."
         ),
     )
     parser.add_argument(
@@ -559,7 +622,7 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help=(
-            "Max training samples (e.g. 60000 for ~50%%). "
+            "Max training samples (e.g. 30000). "
             "val/test are scaled to 12.5%% of this value. "
             "Default: all samples (~42,000 train)."
         ),
