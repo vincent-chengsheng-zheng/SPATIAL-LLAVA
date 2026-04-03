@@ -14,7 +14,7 @@ safetensors==0.7.0
 
 # ── Data processing ────────────────────────────────────────
 datasets==4.8.4
-Pillow==10.1.0
+Pillow-SIMD
 opencv-python-headless==4.8.1.78
 tqdm==4.67.3
 pyyaml==6.0.1

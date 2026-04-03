@@ -34,10 +34,11 @@ import random
 import zipfile
 import urllib.request
 from typing import List, Dict
+from datasets import Dataset
 
 import torch
 from PIL import Image
-from torchvision import transforms
+import torchvision.transforms.v2 as transforms
 
 # Add repo root to path so core/ is importable
 sys.path.insert(
@@ -64,7 +65,7 @@ SEED = 42
 
 # Image transform (no tokenizer needed)
 IMAGE_TRANSFORM = transforms.Compose([
-    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE), antialias=True),
     transforms.ToTensor(),
     transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
 ])
@@ -266,41 +267,41 @@ def preprocess_split(
     coco_dir: str,
     max_samples: int = None,
 ) -> List[Dict]:
-    """Preprocess up to max_samples from one split."""
+    """Preprocess using HF map + multiprocessing for speed on A100."""
     total_available = len(raw_split)
     total = min(total_available, max_samples) if max_samples else total_available
-    errors = 0
-    missing = 0
-    samples = []
 
     print(
         f"\n[Stage 1] Preprocessing '{split_name}' "
-        f"({total}/{total_available} samples) ..."
+        f"({total}/{total_available} samples) with multiprocessing..."
     )
 
-    for i, raw in enumerate(raw_split):
-        if max_samples is not None and len(samples) >= max_samples:
-            break
+    # 转为 HF Dataset 以支持 map + num_proc
+    if isinstance(raw_split, list):
+        ds = Dataset.from_list(raw_split[:total])
+    else:
+        ds = raw_split.select(range(total)) if hasattr(raw_split, "select") else raw_split
+
+    def process_fn(example):
         try:
-            sample = preprocess_sample(raw, coco_dir)
-            samples.append(sample)
-        except FileNotFoundError as e:
-            missing += 1
-            errors += 1
-            if missing <= 3:
-                print(f"  ⚠ {e}")
-            continue
+            return preprocess_sample(example, coco_dir)
         except Exception as e:
-            errors += 1
-            if errors <= 5:
-                print(f"  ⚠ Error at {i}: {e}")
-            continue
+            # 返回空 dict，让后面过滤
+            print(f"  ⚠ Skipped sample: {e}")
+            return {"image": None, "text": "", "bbox": None}
 
-        n = len(samples)
-        if n % 5000 == 0 or n == total:
-            print(f"  [{n}/{total}] done, errors={errors}")
+    # 关键加速参数（A100 上建议 16~32，根据你的 CPU 核心数调整）
+    processed_ds = ds.map(
+        process_fn,
+        batched=False,          # 单样本处理（因为有随机选择句子）
+        num_proc=24,            # ←←← 这里改大！推荐 16~32（A100 有很多核心）
+        # remove_columns 可以根据需要加
+    )
 
-    print(f"  ✓ {len(samples)} samples ({errors} skipped, {missing} missing)")
+    # 过滤掉失败的样本
+    samples = [ex for ex in processed_ds if ex["image"] is not None]
+
+    print(f"  ✓ {len(samples)} samples processed successfully")
     return samples
 
 
