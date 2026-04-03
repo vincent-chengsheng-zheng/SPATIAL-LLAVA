@@ -29,6 +29,7 @@ Usage (on cluster):
 """
 
 import os
+import json
 import argparse
 import random
 import time
@@ -58,7 +59,7 @@ def set_seed(seed: int = 42) -> None:
 
 def load_config(config_path: str, mode: str) -> dict:
     """
-    Load YAML config and return the section for the given mode.
+    Load YAML config and return merged config for the given mode.
 
     Args:
         config_path : Path to config.yaml
@@ -73,7 +74,6 @@ def load_config(config_path: str, mode: str) -> dict:
     base = cfg.get("base", {})
     mode_cfg = cfg.get(mode, {})
 
-    # Deep merge: mode values override base values
     merged = {**base}
     for k, v in mode_cfg.items():
         if isinstance(v, dict) and isinstance(merged.get(k), dict):
@@ -82,6 +82,73 @@ def load_config(config_path: str, mode: str) -> dict:
             merged[k] = v
 
     return merged
+
+
+# ── Training log ──────────────────────────────────────────────────────────────
+
+class TrainingLogger:
+    """
+    Logs training metrics per epoch to a JSON file.
+    Used to generate loss curves and training history.
+
+    Output format (training_log.json):
+    {
+        "mode": "main",
+        "epochs": [
+            {
+                "epoch": 1,
+                "train_loss": 0.45,
+                "val_iou": 0.52,
+                "val_rmse": 0.08,
+                "val_mae": 0.06,
+                "lr": 1e-4,
+                "epoch_time_s": 1234.5,
+                "timestamp": "2026-04-01 10:00:00"
+            },
+            ...
+        ]
+    }
+    """
+
+    def __init__(self, log_path: str, mode: str):
+        self.log_path = log_path
+        self.data = {"mode": mode, "epochs": []}
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+    def log_epoch(
+        self,
+        epoch: int,
+        train_loss: float,
+        val_metrics: dict,
+        lr: float,
+        epoch_time_s: float,
+    ) -> None:
+        """Append one epoch record and save to disk."""
+        record = {
+            "epoch": epoch,
+            "train_loss": round(train_loss, 6),
+            "val_iou": round(val_metrics.get("mean_iou", 0.0), 6),
+            "val_rmse": round(val_metrics.get("rmse", 0.0), 6),
+            "val_mae": round(val_metrics.get("mae", 0.0), 6),
+            "lr": lr,
+            "epoch_time_s": round(epoch_time_s, 1),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        self.data["epochs"].append(record)
+        with open(self.log_path, "w") as f:
+            json.dump(self.data, f, indent=2)
+
+    def summary(self) -> dict:
+        """Return best epoch summary."""
+        if not self.data["epochs"]:
+            return {}
+        best = max(self.data["epochs"], key=lambda x: x["val_iou"])
+        return {
+            "best_epoch": best["epoch"],
+            "best_val_iou": best["val_iou"],
+            "best_val_rmse": best["val_rmse"],
+            "total_epochs": len(self.data["epochs"]),
+        }
 
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
@@ -150,12 +217,15 @@ def build_optimizer_and_scheduler(model, config: dict, total_steps: int):
         weight_decay=config["optimizer"].get("weight_decay", 0.01),
     )
 
-    warmup = LinearLR(optimizer, start_factor=0.1, end_factor=1.0,
-                      total_iters=warmup_steps)
-    cosine = CosineAnnealingLR(optimizer,
-                               T_max=max(total_steps - warmup_steps, 1))
-    scheduler = SequentialLR(optimizer, [warmup, cosine],
-                             milestones=[warmup_steps])
+    warmup = LinearLR(
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_steps
+    )
+    cosine = CosineAnnealingLR(
+        optimizer, T_max=max(total_steps - warmup_steps, 1)
+    )
+    scheduler = SequentialLR(
+        optimizer, [warmup, cosine], milestones=[warmup_steps]
+    )
 
     return optimizer, scheduler
 
@@ -172,8 +242,13 @@ def train_one_epoch(
     global_step: int,
     device: torch.device,
     scaler,
-) -> int:
-    """Run one epoch of training. Returns updated global_step."""
+) -> tuple:
+    """
+    Run one epoch of training.
+
+    Returns:
+        Tuple (global_step, avg_loss)
+    """
     model.train()
     grad_clip = config["optimizer"].get("gradient_clip", 1.0)
     accum_steps = config["training"].get("gradient_accumulation_steps", 1)
@@ -181,26 +256,28 @@ def train_one_epoch(
     use_fp16 = config["hardware"].get("fp16", True)
 
     optimizer.zero_grad()
+    total_loss = 0.0
+    num_batches = 0
 
     for batch_idx, batch in enumerate(loader):
         images = batch["image"].to(device)
         input_ids = batch["input_ids"].to(device)
         targets = batch["bbox"].to(device)
 
-        # Forward
         with torch.cuda.amp.autocast(enabled=use_fp16):
             outputs = model(images, input_ids)
             pred_bbox = outputs["bbox"]
             loss = spatial_loss(pred_bbox, targets)
             loss = loss / accum_steps
 
-        # Backward
         if use_fp16 and scaler is not None:
             scaler.scale(loss).backward()
         else:
             loss.backward()
 
-        # Gradient accumulation
+        total_loss += loss.item() * accum_steps
+        num_batches += 1
+
         if (batch_idx + 1) % accum_steps == 0:
             if use_fp16 and scaler is not None:
                 scaler.unscale_(optimizer)
@@ -224,7 +301,8 @@ def train_one_epoch(
                       f"Loss {loss.item() * accum_steps:.4f} | "
                       f"LR {scheduler.get_last_lr()[0]:.2e}")
 
-    return global_step
+    avg_loss = total_loss / max(num_batches, 1)
+    return global_step, avg_loss
 
 
 def evaluate(
@@ -270,6 +348,15 @@ def main(args):
     output_dir = os.path.expanduser(args.output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
+    # Results dir for training log
+    results_dir = os.path.expanduser(
+        args.results_dir or os.path.join(
+            os.path.dirname(output_dir.rstrip("/")),
+            "..", "results", args.mode
+        )
+    )
+    os.makedirs(results_dir, exist_ok=True)
+
     log_dir = os.path.expanduser(
         args.log_dir or os.environ.get("SPATIAL_LOGS", output_dir)
     )
@@ -277,13 +364,18 @@ def main(args):
 
     num_epochs = config["training"]["num_epochs"]
 
+    # ── Training logger ────────────────────────────────────
+    log_path = os.path.join(results_dir, "training_log.json")
+    training_logger = TrainingLogger(log_path, args.mode)
+
     print("=" * 60)
     print("  Spatial-LLaVA Training")
-    print(f"  Mode    : {args.mode}")
-    print(f"  Epochs  : {num_epochs}")
-    print(f"  Device  : {device}")
-    print(f"  FP16    : {use_fp16}")
-    print(f"  Output  : {output_dir}")
+    print(f"  Mode       : {args.mode}")
+    print(f"  Epochs     : {num_epochs}")
+    print(f"  Device     : {device}")
+    print(f"  FP16       : {use_fp16}")
+    print(f"  Output     : {output_dir}")
+    print(f"  Train log  : {log_path}")
     print("=" * 60)
 
     # ── Data ──────────────────────────────────────────────
@@ -312,7 +404,7 @@ def main(args):
         start_epoch, global_step, best_iou = load_checkpoint(
             model, optimizer, resume_path
         )
-        start_epoch += 1   # resume from next epoch
+        start_epoch += 1
 
     # ── Training loop ──────────────────────────────────────
     print("\n[3/4] Training...")
@@ -323,48 +415,76 @@ def main(args):
         t0 = time.time()
         print(f"\nEpoch {epoch + 1}/{num_epochs}")
 
-        global_step = train_one_epoch(
+        global_step, avg_loss = train_one_epoch(
             model, train_loader, optimizer, scheduler,
             config, epoch + 1, global_step, device, scaler
         )
 
+        epoch_time = time.time() - t0
+
         # Save periodic checkpoint
         if global_step % save_interval == 0 or epoch == num_epochs - 1:
             ckpt_path = os.path.join(output_dir, f"epoch_{epoch + 1}.pth")
-            save_checkpoint(model, optimizer, epoch, global_step,
-                            best_iou, ckpt_path)
+            save_checkpoint(
+                model, optimizer, epoch, global_step, best_iou, ckpt_path
+            )
 
         # Evaluate
+        val_metrics = {}
         if (epoch + 1) % eval_interval == 0:
-            metrics = evaluate(model, val_loader, device, use_fp16)
-            current_iou = metrics["mean_iou"]
+            val_metrics = evaluate(model, val_loader, device, use_fp16)
+            current_iou = val_metrics["mean_iou"]
             print(f"  Val IoU: {current_iou:.4f} | "
-                  f"RMSE: {metrics['rmse']:.4f} | "
-                  f"MAE: {metrics['mae']:.4f} | "
-                  f"Time: {time.time() - t0:.1f}s")
+                  f"RMSE: {val_metrics['rmse']:.4f} | "
+                  f"MAE: {val_metrics['mae']:.4f} | "
+                  f"Time: {epoch_time:.1f}s")
 
             best_iou = save_best(
                 model, optimizer, epoch, global_step,
                 current_iou, best_iou, output_dir
             )
 
+        # Log epoch to training_log.json
+        training_logger.log_epoch(
+            epoch=epoch + 1,
+            train_loss=avg_loss,
+            val_metrics=val_metrics,
+            lr=scheduler.get_last_lr()[0],
+            epoch_time_s=epoch_time,
+        )
+
     # ── Done ───────────────────────────────────────────────
+    summary = training_logger.summary()
     print("\n[4/4] Training complete!")
-    print(f"  Best Val IoU : {best_iou:.4f}")
+    print(f"  Best Val IoU : {summary.get('best_val_iou', best_iou):.4f} "
+          f"(epoch {summary.get('best_epoch', '?')})")
+    print(f"  Training log : {log_path}")
     print(f"  Best checkpoint : {output_dir}/best.pth")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Spatial-LLaVA Training")
     parser.add_argument("--mode", choices=["main", "ablation"], required=True)
-    parser.add_argument("--config", type=str,
-                        default="courses/shared/config.yaml")
-    parser.add_argument("--data_dir", type=str,
-                        default="~/SharedFolder/MDAIE/group6/data/")
-    parser.add_argument("--output_dir", type=str,
-                        default="~/SharedFolder/MDAIE/group6/checkpoints/main/")
+    parser.add_argument(
+        "--config", type=str, default="courses/shared/config.yaml"
+    )
+    parser.add_argument(
+        "--data_dir", type=str,
+        default="~/SharedFolder/MDAIE/group6/data/"
+    )
+    parser.add_argument(
+        "--output_dir", type=str,
+        default="~/SharedFolder/MDAIE/group6/checkpoints/main/"
+    )
+    parser.add_argument(
+        "--results_dir", type=str, default=None,
+        help="Where to save training_log.json "
+             "(default: ../results/<mode>/ relative to output_dir)"
+    )
     parser.add_argument("--log_dir", type=str, default=None)
-    parser.add_argument("--resume", type=str, default=None,
-                        help="Path to checkpoint to resume from")
+    parser.add_argument(
+        "--resume", type=str, default=None,
+        help="Path to checkpoint to resume from"
+    )
     args = parser.parse_args()
     main(args)

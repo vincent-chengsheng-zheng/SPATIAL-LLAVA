@@ -1,11 +1,11 @@
 """
 courses/shared/eval.py
 
-Evaluation script for Spatial-LLaVA — runs all three ablation models
-and generates comparison metrics for both courses.
+Evaluation script for Spatial-LLaVA — runs all three models and generates
+comparison metrics, visualizations, and inference speed benchmarks.
 
 Three models evaluated:
-    baseline  — Standard LLaVA outputting bbox as text tokens
+    baseline  — Standard LLaVA (no training, text output parsed to bbox)
     ablation  — Head only (no LoRA, LLM frozen)
     ours      — Full Spatial-LLaVA (LoRA + regression head)
 
@@ -19,24 +19,29 @@ Usage:
 Output files:
     results/metrics_all.json        — all three models side by side
     results/comparison_table.json   — improvement percentages
-    results/inference_examples/     — bbox visualizations
+    results/training_curves.json    — merged from training_log.json files
+    results/examples/               — bbox visualizations per model
+    results/failure_cases/          — cases where IoU < threshold
 """
 
 import os
 import json
-import argparse
 import time
+import argparse
 from typing import Dict, Optional
 
 import torch
 from torch import Tensor
 from torch.utils.data import DataLoader
+from PIL import Image
+import numpy as np
 
 from core.model.spatial_llava import SpatialLLaVA
 from core.data.refcoco_loader import RefCOCODataset
 from core.utils.metrics import compute_all_metrics
 from core.utils.checkpoint import load_checkpoint
 from core.utils.visualization import display_comparison
+from core.loss.spatial_loss import iou as compute_iou
 
 
 # ── Inference ─────────────────────────────────────────────────────────────────
@@ -63,7 +68,9 @@ def run_inference_batch(
     input_ids = batch["input_ids"].to(device)
 
     with torch.no_grad():
-        with torch.cuda.amp.autocast(enabled=use_fp16 and device.type == "cuda"):
+        with torch.cuda.amp.autocast(
+            enabled=use_fp16 and device.type == "cuda"
+        ):
             outputs = model(images, input_ids)
 
     return outputs["bbox"].cpu()
@@ -76,21 +83,30 @@ def collect_predictions(
     use_fp16: bool = True,
 ) -> tuple:
     """
-    Run inference over the full test set.
+    Run inference over the full dataset split.
 
     Returns:
         Tuple (preds, targets) — both Tensor (N, 4)
+        Also returns per-sample inference time in ms
     """
     model.eval()
     all_preds = []
     all_targets = []
+    total_time = 0.0
+    total_samples = 0
 
     for batch in loader:
+        t0 = time.time()
         preds = run_inference_batch(model, batch, device, use_fp16)
+        elapsed = (time.time() - t0) * 1000   # ms
+        total_time += elapsed
+        total_samples += preds.shape[0]
+
         all_preds.append(preds)
         all_targets.append(batch["bbox"])
 
-    return torch.cat(all_preds, dim=0), torch.cat(all_targets, dim=0)
+    avg_ms = total_time / max(total_samples, 1)
+    return torch.cat(all_preds, dim=0), torch.cat(all_targets, dim=0), avg_ms
 
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
@@ -106,7 +122,7 @@ def compute_model_metrics(
     Args:
         preds             : Tensor (N, 4) — predicted bboxes
         targets           : Tensor (N, 4) — ground truth bboxes
-        inference_time_ms : Average inference time per sample
+        inference_time_ms : Average inference time per sample in ms
 
     Returns:
         Dict with mean_iou, rmse, mae, inference_time_ms, num_samples
@@ -117,19 +133,12 @@ def compute_model_metrics(
     return metrics
 
 
-def compute_improvement(
-    baseline_iou: float,
-    model_iou: float,
-) -> str:
+def compute_improvement(baseline_iou: float, model_iou: float) -> str:
     """
-    Compute percentage improvement in IoU over a baseline.
-
-    Args:
-        baseline_iou : IoU of the baseline model
-        model_iou    : IoU of the model being compared
+    Compute percentage improvement in IoU over baseline.
 
     Returns:
-        String like "+48.9%" or "-5.2%"
+        String like "+48.9%" or "-5.2%" or "N/A"
     """
     if baseline_iou == 0:
         return "N/A"
@@ -138,9 +147,7 @@ def compute_improvement(
     return f"{sign}{pct:.1f}%"
 
 
-def generate_comparison_table(
-    results: Dict[str, dict],
-) -> dict:
+def generate_comparison_table(results: Dict[str, dict]) -> dict:
     """
     Generate a comparison table from per-model metric dicts.
 
@@ -185,56 +192,118 @@ def generate_comparison_table(
 # ── Visualization ─────────────────────────────────────────────────────────────
 
 def save_inference_examples(
-    model: SpatialLLaVA,
+    model_preds: Dict[str, Tensor],
+    targets: Tensor,
     loader: DataLoader,
-    device: torch.device,
     output_dir: str,
     n_examples: int = 20,
-    use_fp16: bool = True,
+    iou_threshold: float = 0.3,
 ) -> None:
     """
-    Save side-by-side pred vs target visualizations for N examples.
+    Save side-by-side visualizations for all three models.
+
+    Saves:
+        output_dir/examples/     — random N examples
+        output_dir/failures/     — cases where ours IoU < threshold
 
     Args:
-        model      : SpatialLLaVA model
-        loader     : DataLoader (test set)
-        device     : Target device
-        output_dir : Directory to save PNG files
-        n_examples : Number of examples to save
-        use_fp16   : Whether to use fp16 autocast
+        model_preds   : Dict of {model_name: predictions tensor (N, 4)}
+        targets       : Ground truth tensor (N, 4)
+        loader        : DataLoader (to get original images)
+        output_dir    : Base results directory
+        n_examples    : Number of examples to save
+        iou_threshold : IoU below this is considered a failure case
     """
-    from PIL import Image
+    examples_dir = os.path.join(output_dir, "examples")
+    failures_dir = os.path.join(output_dir, "failure_cases")
+    os.makedirs(examples_dir, exist_ok=True)
+    os.makedirs(failures_dir, exist_ok=True)
 
-    os.makedirs(output_dir, exist_ok=True)
-    model.eval()
-    saved = 0
-
+    # Collect raw images from loader
+    all_images = []
     for batch in loader:
-        if saved >= n_examples:
+        all_images.append(batch["image"])
+    all_images = torch.cat(all_images, dim=0)
+
+    # Compute IoU for "ours" to find failure cases
+    ours_iou = compute_iou(model_preds["ours"], targets)
+
+    saved_examples = 0
+    saved_failures = 0
+
+    # Random indices for examples
+    n = targets.shape[0]
+    indices = torch.randperm(n)[:n_examples].tolist()
+
+    for idx in range(n):
+        img_tensor = all_images[idx]
+        # Denormalize image for display
+        img_np = img_tensor.numpy().transpose(1, 2, 0)
+        img_np = (img_np * 0.225 + 0.45).clip(0, 1)
+        img_np = (img_np * 255).astype(np.uint8)
+        pil_img = Image.fromarray(img_np)
+
+        target_box = tuple(targets[idx].tolist())
+        sample_iou = ours_iou[idx].item()
+
+        # Save example
+        if saved_examples < n_examples and idx in indices:
+            for model_name, preds in model_preds.items():
+                pred_box = tuple(preds[idx].tolist())
+                result = display_comparison(pil_img, pred_box, target_box)
+                fname = f"example_{saved_examples:03d}_{model_name}.png"
+                result.save(os.path.join(examples_dir, fname))
+            saved_examples += 1
+
+        # Save failure case
+        if sample_iou < iou_threshold and saved_failures < n_examples:
+            for model_name, preds in model_preds.items():
+                pred_box = tuple(preds[idx].tolist())
+                result = display_comparison(pil_img, pred_box, target_box)
+                fname = (
+                    f"failure_{saved_failures:03d}_"
+                    f"iou{sample_iou:.2f}_{model_name}.png"
+                )
+                result.save(os.path.join(failures_dir, fname))
+            saved_failures += 1
+
+        if saved_examples >= n_examples and saved_failures >= n_examples:
             break
 
-        preds = run_inference_batch(model, batch, device, use_fp16)
-        images_np = batch["image"].numpy()
-        targets = batch["bbox"]
+    print(f"  Saved {saved_examples} examples → {examples_dir}")
+    print(f"  Saved {saved_failures} failure cases → {failures_dir}")
 
-        for i in range(len(preds)):
-            if saved >= n_examples:
-                break
 
-            # Denormalize image for display
-            img_np = images_np[i].transpose(1, 2, 0)
-            img_np = (img_np * 0.225 + 0.45).clip(0, 1)
-            img_np = (img_np * 255).astype("uint8")
-            pil_img = Image.fromarray(img_np)
+# ── Training curves ───────────────────────────────────────────────────────────
 
-            pred_box = tuple(preds[i].tolist())
-            target_box = tuple(targets[i].tolist())
+def load_training_curves(
+    main_results_dir: str,
+    ablation_results_dir: str,
+) -> dict:
+    """
+    Load training_log.json files and merge into one dict for plotting.
 
-            result = display_comparison(pil_img, pred_box, target_box)
-            result.save(os.path.join(output_dir, f"example_{saved:03d}.png"))
-            saved += 1
+    Returns:
+        Dict with "main" and "ablation" training histories
+    """
+    curves = {}
 
-    print(f"  Saved {saved} inference examples to {output_dir}")
+    for mode, results_dir in [
+        ("main", main_results_dir),
+        ("ablation", ablation_results_dir),
+    ]:
+        log_path = os.path.join(
+            os.path.expanduser(results_dir), "training_log.json"
+        )
+        if os.path.exists(log_path):
+            with open(log_path) as f:
+                curves[mode] = json.load(f)
+            print(f"  Loaded training log: {log_path}")
+        else:
+            print(f"  ⚠ Training log not found: {log_path}")
+            curves[mode] = {"mode": mode, "epochs": []}
+
+    return curves
 
 
 # ── IO ────────────────────────────────────────────────────────────────────────
@@ -258,7 +327,7 @@ def load_model_with_checkpoint(
     Load SpatialLLaVA and optionally restore from checkpoint.
 
     Args:
-        checkpoint_path : Path to .pth file, or None for fresh model
+        checkpoint_path : Path to .pth file, or None for baseline
         mode            : "main" or "ablation"
         device          : Target device
 
@@ -289,14 +358,21 @@ def main(args):
     use_fp16 = device.type == "cuda"
     output_dir = os.path.expanduser(args.output_dir)
 
+    # Per-model result dirs
+    baseline_dir = os.path.join(output_dir, "baseline")
+    main_dir = os.path.join(output_dir, "main")
+    ablation_dir = os.path.join(output_dir, "ablation")
+    for d in [baseline_dir, main_dir, ablation_dir]:
+        os.makedirs(d, exist_ok=True)
+
     print("=" * 60)
     print("  Spatial-LLaVA Evaluation")
     print(f"  Device     : {device}")
     print(f"  Output dir : {output_dir}")
     print("=" * 60)
 
-    # ── Test DataLoader ───────────────────────────────────────
-    print("\n[1/4] Loading test set...")
+    # ── Test DataLoader ───────────────────────────────────
+    print("\n[1/5] Loading test set...")
     test_dataset = RefCOCODataset.from_config(
         {"data_dir": args.data_dir}, split="test"
     )
@@ -306,82 +382,121 @@ def main(args):
     print(f"  Test samples: {len(test_dataset):,}")
 
     results = {}
+    all_preds = {}
 
-    # ── Baseline: Standard LLaVA ──────────────────────────────
-    print("\n[2/4] Evaluating Baseline (Standard LLaVA)...")
+    # ── Baseline: Standard LLaVA ──────────────────────────
+    print("\n[2/5] Evaluating Baseline (Standard LLaVA)...")
     baseline_model = load_model_with_checkpoint(None, "main", device)
-    t0 = time.time()
-    preds, targets = collect_predictions(baseline_model, test_loader,
-                                         device, use_fp16)
-    elapsed_ms = (time.time() - t0) / len(test_dataset) * 1000
-    results["baseline"] = compute_model_metrics(preds, targets, elapsed_ms)
-    print(f"  IoU: {results['baseline']['mean_iou']:.4f}")
+    preds, targets, ms = collect_predictions(
+        baseline_model, test_loader, device, use_fp16
+    )
+    results["baseline"] = compute_model_metrics(preds, targets, ms)
+    all_preds["baseline"] = preds
+    print(f"  IoU: {results['baseline']['mean_iou']:.4f} | "
+          f"Latency: {ms:.1f}ms/sample")
+    save_results(results["baseline"], baseline_dir, "metrics.json")
     del baseline_model
+    torch.cuda.empty_cache()
 
-    # ── Ablation: Head Only ────────────────────────────────────
-    print("\n[3/4] Evaluating Ablation (Head Only)...")
+    # ── Ablation: Head Only ────────────────────────────────
+    print("\n[3/5] Evaluating Ablation (Head Only)...")
     ablation_model = load_model_with_checkpoint(
         args.ablation_ckpt, "ablation", device
     )
-    t0 = time.time()
-    preds, targets = collect_predictions(ablation_model, test_loader,
-                                         device, use_fp16)
-    elapsed_ms = (time.time() - t0) / len(test_dataset) * 1000
-    results["ablation"] = compute_model_metrics(preds, targets, elapsed_ms)
-    print(f"  IoU: {results['ablation']['mean_iou']:.4f}")
+    preds, targets, ms = collect_predictions(
+        ablation_model, test_loader, device, use_fp16
+    )
+    results["ablation"] = compute_model_metrics(preds, targets, ms)
+    all_preds["ablation"] = preds
+    print(f"  IoU: {results['ablation']['mean_iou']:.4f} | "
+          f"Latency: {ms:.1f}ms/sample")
+    save_results(results["ablation"], ablation_dir, "metrics.json")
     del ablation_model
+    torch.cuda.empty_cache()
 
-    # ── Ours: Full Spatial-LLaVA ──────────────────────────────
-    print("\n[4/4] Evaluating Ours (Spatial-LLaVA)...")
+    # ── Ours: Full Spatial-LLaVA ──────────────────────────
+    print("\n[4/5] Evaluating Ours (Spatial-LLaVA)...")
     our_model = load_model_with_checkpoint(
         args.ours_ckpt, "main", device
     )
-    t0 = time.time()
-    preds, targets = collect_predictions(our_model, test_loader,
-                                         device, use_fp16)
-    elapsed_ms = (time.time() - t0) / len(test_dataset) * 1000
-    results["ours"] = compute_model_metrics(preds, targets, elapsed_ms)
-    print(f"  IoU: {results['ours']['mean_iou']:.4f}")
+    preds, _, ms = collect_predictions(
+        our_model, test_loader, device, use_fp16
+    )
+    results["ours"] = compute_model_metrics(preds, targets, ms)
+    all_preds["ours"] = preds
+    print(f"  IoU: {results['ours']['mean_iou']:.4f} | "
+          f"Latency: {ms:.1f}ms/sample")
+    save_results(results["ours"], main_dir, "metrics.json")
 
-    # ── Save results ──────────────────────────────────────────
+    # ── Save combined results ──────────────────────────────
     save_results(results, output_dir, "metrics_all.json")
 
     table = generate_comparison_table(results)
     save_results(table, output_dir, "comparison_table.json")
 
-    # ── Visualizations ────────────────────────────────────────
-    if not args.no_viz:
-        viz_dir = os.path.join(output_dir, "inference_examples")
-        save_inference_examples(our_model, test_loader, device,
-                                viz_dir, n_examples=20,
-                                use_fp16=use_fp16)
+    # ── Load and merge training curves ────────────────────
+    print("\n[5/5] Saving visualizations and training curves...")
+    curves = load_training_curves(main_dir, ablation_dir)
+    save_results(curves, output_dir, "training_curves.json")
 
-    # ── Summary ───────────────────────────────────────────────
+    # ── Visualizations ────────────────────────────────────
+    if not args.no_viz:
+        save_inference_examples(
+            model_preds=all_preds,
+            targets=targets,
+            loader=test_loader,
+            output_dir=output_dir,
+            n_examples=args.n_examples,
+        )
+
+    del our_model
+
+    # ── Summary ───────────────────────────────────────────
     print("\n" + "=" * 60)
     print("  Results Summary")
     print("=" * 60)
+    header = f"  {'Model':12s} {'IoU':>8s} {'RMSE':>8s} {'MAE':>8s} {'ms/sample':>10s}"
+    print(header)
+    print("  " + "-" * 52)
     for name, m in results.items():
-        print(f"  {name:10s} IoU={m['mean_iou']:.4f}  "
-              f"RMSE={m['rmse']:.4f}  "
-              f"Latency={m['inference_time_ms']:.1f}ms")
-
+        print(
+            f"  {name:12s} "
+            f"{m['mean_iou']:8.4f} "
+            f"{m['rmse']:8.4f} "
+            f"{m['mae']:8.4f} "
+            f"{m['inference_time_ms']:10.1f}"
+        )
+    print("=" * 60)
     print(f"\n  Improvement (ours vs baseline): "
           f"{table['ours']['improvement_vs_baseline']}")
     print(f"  Improvement (ours vs ablation): "
           f"{table['ours']['improvement_vs_ablation']}")
+    print(f"\n  All results saved to: {output_dir}")
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Spatial-LLaVA Evaluation")
+    parser = argparse.ArgumentParser(
+        description="Spatial-LLaVA 3-way Evaluation"
+    )
     parser.add_argument("--ours_ckpt", type=str, required=True)
     parser.add_argument("--ablation_ckpt", type=str, required=True)
-    parser.add_argument("--data_dir", type=str,
-                        default="~/SharedFolder/MDAIE/group6/data/")
-    parser.add_argument("--output_dir", type=str,
-                        default="~/SharedFolder/MDAIE/group6/results/")
+    parser.add_argument(
+        "--data_dir", type=str,
+        default="~/SharedFolder/MDAIE/group6/data/"
+    )
+    parser.add_argument(
+        "--output_dir", type=str,
+        default="~/SharedFolder/MDAIE/group6/results/"
+    )
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--no_viz", action="store_true",
-                        help="Skip saving visualization examples")
+    parser.add_argument(
+        "--n_examples", type=int, default=20,
+        help="Number of visualization examples to save"
+    )
+    parser.add_argument(
+        "--no_viz", action="store_true",
+        help="Skip saving visualization examples"
+    )
     args = parser.parse_args()
     main(args)
