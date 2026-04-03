@@ -2,168 +2,214 @@
 # =============================================================
 # shared/scripts/download_data.sh
 #
-# Downloads COCO images to /tmp/ (local SSD), preprocesses,
-# saves pkl files to SharedFolder. Cleans up /tmp/ after done.
+# One-command data preparation. Everything runs in /tmp/ (local SSD).
+# SharedFolder is only used for checkpoints/results/logs.
 #
 # Usage:
 #   bash shared/scripts/download_data.sh           # Full pipeline
-#   bash shared/scripts/download_data.sh --check   # Check pkl files only
+#   bash shared/scripts/download_data.sh --check   # Check status only
 #   bash shared/scripts/download_data.sh --force   # Force re-preprocess
+#
+# Steps (auto-resumed if already done):
+#   1. Download COCO zip to /tmp/train2014.zip
+#   2. Extract to /tmp/coco/train2014/
+#   3. Preprocess → pkl files in /tmp/data/
+#   4. Train directly from /tmp/data/
 # =============================================================
 
 set -e
 
 BASE_DIR=~/SharedFolder/MDAIE/group6
-DATA_DIR=$BASE_DIR/data
 HF_CACHE=$BASE_DIR/hf_cache
 REPO_DIR=~/spatial-llava
 LOG_DIR=$BASE_DIR/logs
 
-# Local SSD paths (fast, lost on container restart)
+# Everything local
 TMP_ZIP=/tmp/train2014.zip
 TMP_COCO=/tmp/coco
+TMP_DATA=/tmp/data
 
-MODE="auto"
+COCO_URL="http://images.cocodataset.org/zips/train2014.zip"
+COCO_EXPECTED_SIZE=13510573713
+COCO_EXPECTED_IMGS=82784
+
 FORCE_FLAG=""
-
+MODE="auto"
 for arg in "$@"; do
     case $arg in
         --check) MODE="check" ;;
-        --force) MODE="force"; FORCE_FLAG="--force" ;;
+        --force) FORCE_FLAG="--force"; MODE="force" ;;
     esac
 done
 
 echo "======================================================"
 echo " Spatial-LLaVA — Data Preparation"
-echo " pkl output : $DATA_DIR   (SharedFolder, persistent)"
-echo " COCO tmp   : $TMP_COCO   (local SSD, fast)"
-echo " Mode       : $MODE"
-echo " Started    : $(date)"
+echo " All data in : /tmp/ (local SSD, fast)"
+echo " Persistent  : checkpoints/results/logs → SharedFolder"
+echo " Mode        : $MODE"
+echo " Started     : $(date)"
 echo "======================================================"
 
-# ── Check pkl files ────────────────────────────────────────
+# ── Helper: count images ───────────────────────────────────
+count_imgs() {
+    ls /tmp/coco/train2014/*.jpg 2>/dev/null | wc -l
+}
+
+# ── Status check ───────────────────────────────────────────
 echo ""
-echo "[1/5] Checking pkl files..."
+echo "── Current Status ────────────────────────────────────"
 
-TRAIN_PKL=$DATA_DIR/refcoco_train.pkl
-VAL_PKL=$DATA_DIR/refcoco_val.pkl
-TEST_PKL=$DATA_DIR/refcoco_test.pkl
-STATS_JSON=$DATA_DIR/dataset_stats.json
+# zip
+ZIP_SIZE=$(stat -c%s $TMP_ZIP 2>/dev/null || echo 0)
+if [[ $ZIP_SIZE -eq $COCO_EXPECTED_SIZE ]]; then
+    echo "  ✅ zip  : $TMP_ZIP ($(du -sh $TMP_ZIP | cut -f1))"
+elif [[ $ZIP_SIZE -gt 0 ]]; then
+    echo "  ⚠  zip  : partial ($(du -sh $TMP_ZIP | cut -f1) / 13.5GB)"
+else
+    echo "  ❌ zip  : not found"
+fi
 
-all_exist=true
-for f in "$TRAIN_PKL" "$VAL_PKL" "$TEST_PKL" "$STATS_JSON"; do
-    if [[ -f "$f" && $(wc -c < "$f") -gt 100 ]]; then
-        size=$(du -sh "$f" | cut -f1)
-        echo "  ✅ $(basename $f) ($size)"
-    else
-        echo "  ❌ $(basename $f) — NOT FOUND or EMPTY"
-        all_exist=false
-    fi
-done
+# images
+N_IMGS=$(count_imgs)
+if [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
+    echo "  ✅ imgs : $N_IMGS images in /tmp/coco/train2014/"
+elif [[ $N_IMGS -gt 0 ]]; then
+    echo "  ⚠  imgs : $N_IMGS / $COCO_EXPECTED_IMGS extracted"
+else
+    echo "  ❌ imgs : not extracted"
+fi
 
-# ── Check only mode ────────────────────────────────────────
+# pkl
+TRAIN_PKL=$TMP_DATA/refcoco_train.pkl
+PKL_OK=false
+if [[ -f "$TRAIN_PKL" && $(wc -c < "$TRAIN_PKL") -gt 100 ]]; then
+    echo "  ✅ pkl  : $(du -sh $TMP_DATA/*.pkl 2>/dev/null | tr '\n' ' ')"
+    PKL_OK=true
+else
+    echo "  ❌ pkl  : not found in /tmp/data/"
+fi
+
+# ── Check mode ─────────────────────────────────────────────
 if [[ "$MODE" == "check" ]]; then
     echo ""
-    if $all_exist; then
+    if $PKL_OK; then
         echo "======================================================"
-        echo " ✅ All pkl files present. Ready to train."
+        echo " ✅ Ready to train!"
+        echo " Data dir: $TMP_DATA"
         echo " Next: bash shared/scripts/start_training.sh main"
         echo "======================================================"
         exit 0
     else
         echo "======================================================"
-        echo " ❌ pkl files missing."
-        echo " Run: bash shared/scripts/download_data.sh"
+        echo " ❌ Not ready. Run without --check to continue."
         echo "======================================================"
         exit 1
     fi
 fi
 
-# ── Already complete, not force ────────────────────────────
-if $all_exist && [[ "$MODE" != "force" ]]; then
+# ── Already done ───────────────────────────────────────────
+if $PKL_OK && [[ "$MODE" != "force" ]]; then
     echo ""
     echo "======================================================"
-    echo " ✅ pkl files already complete. Skipping."
-    echo " To re-preprocess: bash shared/scripts/download_data.sh --force"
-    echo " Ready to train  : bash shared/scripts/start_training.sh main"
+    echo " ✅ pkl files already in /tmp/data/. Nothing to do."
+    echo " Next: bash shared/scripts/start_training.sh main"
     echo "======================================================"
     exit 0
 fi
 
-# ── Clean up old COCO data from SharedFolder ──────────────
+# ── Step 1: Download zip ───────────────────────────────────
 echo ""
-echo "[2/5] Cleaning up old data from SharedFolder..."
-OLD_COCO=$BASE_DIR/coco
-if [[ -d "$OLD_COCO" ]]; then
-    echo "  Removing $OLD_COCO (zip + extracted images no longer needed)..."
-    rm -rf "$OLD_COCO"
-    echo "  ✅ Removed $OLD_COCO"
+echo "[1/3] COCO zip download..."
+
+if [[ $ZIP_SIZE -eq $COCO_EXPECTED_SIZE ]]; then
+    echo "  ✅ Already complete, skipping download."
 else
-    echo "  Nothing to clean up."
+    echo "  Downloading to $TMP_ZIP (~23 min at 8MB/s)..."
+    wget -c $COCO_URL -O $TMP_ZIP
+    echo "  ✅ Download complete."
 fi
 
-# ── Download COCO zip to /tmp/ ─────────────────────────────
+# ── Step 2: Extract ────────────────────────────────────────
 echo ""
-echo "[3/5] Downloading COCO train2014 to local SSD..."
-mkdir -p $TMP_COCO
+echo "[2/3] Extracting COCO images..."
 
-TRAIN2014_DIR=$TMP_COCO/train2014
-N_IMGS=$(ls $TRAIN2014_DIR/*.jpg 2>/dev/null | wc -l)
-
-if [[ $N_IMGS -gt 80000 ]]; then
-    echo "  ✅ COCO already extracted in /tmp/: $N_IMGS images"
+N_IMGS=$(count_imgs)
+if [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
+    echo "  ✅ Already extracted: $N_IMGS images. Skipping."
 else
-    echo "  Downloading ~13.5GB to $TMP_ZIP ..."
-    echo "  (local SSD → fast write, ~26 min at 8MB/s)"
-    wget -c http://images.cocodataset.org/zips/train2014.zip \
-        -O $TMP_ZIP
+    echo "  Extracting $TMP_ZIP → $TMP_COCO ..."
+    echo "  (using Python zipfile — no unzip needed)"
+    mkdir -p $TMP_COCO
 
-    echo ""
-    echo "  Extracting to $TMP_COCO ..."
-    unzip -q $TMP_ZIP -d $TMP_COCO
+    python3 - << 'EOF'
+import zipfile, os, sys
 
-    N_IMGS=$(ls $TRAIN2014_DIR/*.jpg 2>/dev/null | wc -l)
-    echo "  ✅ Extracted: $N_IMGS images"
+zip_path = "/tmp/train2014.zip"
+dest_dir = "/tmp/coco"
+train_dir = "/tmp/coco/train2014"
 
-    echo "  Removing zip from /tmp/ to free space..."
+# Count already extracted
+already = len([f for f in os.listdir(train_dir) if f.endswith(".jpg")]) \
+    if os.path.isdir(train_dir) else 0
+print(f"  Already extracted: {already:,} images")
+
+with zipfile.ZipFile(zip_path, "r") as zf:
+    members = [m for m in zf.namelist() if m.endswith(".jpg")]
+    total = len(members)
+    extracted = 0
+    for member in members:
+        fname = os.path.basename(member)
+        dest = os.path.join(train_dir, fname)
+        if os.path.exists(dest):
+            continue
+        zf.extract(member, dest_dir)
+        extracted += 1
+        if extracted % 10000 == 0:
+            done = already + extracted
+            print(f"  [{done:,}/{total:,}] extracted...")
+
+done = len([f for f in os.listdir(train_dir) if f.endswith(".jpg")])
+print(f"  ✅ Done: {done:,} images in {train_dir}")
+EOF
+
+    N_IMGS=$(count_imgs)
+    echo "  Total images: $N_IMGS"
+
+    echo "  Removing zip to free /tmp/ space..."
     rm -f $TMP_ZIP
+    echo "  ✅ Zip removed."
 fi
 
-# ── Preprocess ─────────────────────────────────────────────
+# ── Step 3: Preprocess ─────────────────────────────────────
 echo ""
-echo "[4/5] Preprocessing RefCOCO..."
-mkdir -p $DATA_DIR $HF_CACHE $LOG_DIR
+echo "[3/3] Preprocessing RefCOCO → pkl..."
+mkdir -p $TMP_DATA $HF_CACHE $LOG_DIR
 
 TIMESTAMP=$(date +%Y%m%d_%H%M)
 LOG_FILE=$LOG_DIR/stage1_${TIMESTAMP}.log
-
 echo "  Log: $LOG_FILE"
 echo ""
 
 cd $REPO_DIR
 
 python pipeline/stage_1_data_preparation.py \
-    --output_dir $DATA_DIR \
+    --output_dir $TMP_DATA \
     --coco_dir   $TMP_COCO \
     --hf_home    $HF_CACHE \
     --skip_coco_download \
     $FORCE_FLAG \
     2>&1 | tee $LOG_FILE
 
-# ── Clean up /tmp/coco ─────────────────────────────────────
+# ── Final check ────────────────────────────────────────────
 echo ""
-echo "[5/5] Cleaning up /tmp/coco..."
-rm -rf $TMP_COCO
-echo "  ✅ /tmp/coco removed (pkl files saved to SharedFolder)"
-
-# ── Verify ─────────────────────────────────────────────────
-echo ""
-echo "  Verifying pkl files..."
+echo "── Final Verification ────────────────────────────────"
 all_good=true
-for f in "$TRAIN_PKL" "$VAL_PKL" "$TEST_PKL" "$STATS_JSON"; do
+for f in "$TMP_DATA/refcoco_train.pkl" \
+         "$TMP_DATA/refcoco_val.pkl" \
+         "$TMP_DATA/refcoco_test.pkl" \
+         "$TMP_DATA/dataset_stats.json"; do
     if [[ -f "$f" && $(wc -c < "$f") -gt 100 ]]; then
-        size=$(du -sh "$f" | cut -f1)
-        echo "  ✅ $(basename $f) ($size)"
+        echo "  ✅ $(basename $f) ($(du -sh $f | cut -f1))"
     else
         echo "  ❌ $(basename $f) — MISSING or EMPTY"
         all_good=false
@@ -175,18 +221,15 @@ if $all_good; then
     echo "======================================================"
     echo " ✅ Data preparation complete!"
     echo ""
-    echo " pkl files saved to: $DATA_DIR"
-    echo " (persistent across container restarts)"
+    echo " pkl location: $TMP_DATA  (local SSD)"
+    echo " Note: re-run this script if container restarts."
     echo ""
-    echo " Next steps:"
-    echo "   bash shared/scripts/start_training.sh main"
-    echo "   bash shared/scripts/start_training.sh ablation"
+    echo " Next: bash shared/scripts/start_training.sh main"
     echo "======================================================"
     exit 0
 else
     echo "======================================================"
-    echo " ❌ Something failed. Check log:"
-    echo "    $LOG_FILE"
+    echo " ❌ Something failed. Check log: $LOG_FILE"
     echo "======================================================"
     exit 1
 fi
