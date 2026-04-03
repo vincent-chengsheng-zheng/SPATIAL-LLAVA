@@ -2,36 +2,47 @@
 # =============================================================
 # shared/scripts/download_data.sh
 #
-# Check if RefCOCO dataset exists, download if not.
+# Downloads RefCOCO annotations + COCO images, then preprocesses.
 #
 # Usage:
-#   bash shared/scripts/download_data.sh          # Check + download if needed
-#   bash shared/scripts/download_data.sh --check  # Check only, no download
-#   bash shared/scripts/download_data.sh --force  # Force re-download
+#   bash shared/scripts/download_data.sh              # Full pipeline
+#   bash shared/scripts/download_data.sh --check      # Check only
+#   bash shared/scripts/download_data.sh --force      # Force re-download
+#   bash shared/scripts/download_data.sh --skip_coco  # Skip COCO download
 # =============================================================
 
 set -e
 
 BASE_DIR=~/SharedFolder/MDAIE/group6
 DATA_DIR=$BASE_DIR/data
+COCO_DIR=$BASE_DIR/coco
 HF_CACHE=$BASE_DIR/hf_cache
 REPO_DIR=~/spatial-llava
 LOG_DIR=$BASE_DIR/logs
 
 MODE="auto"
-if [[ "$1" == "--check" ]]; then MODE="check"; fi
-if [[ "$1" == "--force" ]]; then MODE="force"; fi
+FORCE_FLAG=""
+SKIP_COCO=""
+
+for arg in "$@"; do
+    case $arg in
+        --check)       MODE="check" ;;
+        --force)       MODE="force"; FORCE_FLAG="--force" ;;
+        --skip_coco)   SKIP_COCO="--skip_coco_download" ;;
+    esac
+done
 
 echo "======================================================"
-echo " Spatial-LLaVA — Data Check & Download"
+echo " Spatial-LLaVA — Data Download & Preparation"
 echo " Data dir : $DATA_DIR"
+echo " COCO dir : $COCO_DIR"
 echo " Mode     : $MODE"
 echo " Started  : $(date)"
 echo "======================================================"
 
 # ── Check required files ───────────────────────────────────
 echo ""
-echo "[1/3] Checking dataset files..."
+echo "[1/4] Checking dataset files..."
 
 TRAIN_PKL=$DATA_DIR/refcoco_train.pkl
 VAL_PKL=$DATA_DIR/refcoco_val.pkl
@@ -40,34 +51,51 @@ STATS_JSON=$DATA_DIR/dataset_stats.json
 
 all_exist=true
 for f in "$TRAIN_PKL" "$VAL_PKL" "$TEST_PKL" "$STATS_JSON"; do
-    if [[ -f "$f" ]]; then
+    if [[ -f "$f" && $(wc -c < "$f") -gt 100 ]]; then
         size=$(du -sh "$f" | cut -f1)
         echo "  ✅ $(basename $f) ($size)"
     else
-        echo "  ❌ $(basename $f) — NOT FOUND"
+        echo "  ❌ $(basename $f) — NOT FOUND or EMPTY"
         all_exist=false
     fi
 done
 
+# ── Check COCO images ──────────────────────────────────────
+echo ""
+echo "[2/4] Checking COCO images..."
+
+TRAIN2014_DIR=$COCO_DIR/train2014
+coco_ok=false
+if [[ -d "$TRAIN2014_DIR" ]]; then
+    N=$(ls $TRAIN2014_DIR/*.jpg 2>/dev/null | wc -l)
+    if [[ $N -gt 80000 ]]; then
+        echo "  ✅ COCO train2014: $N images"
+        coco_ok=true
+    else
+        echo "  ⚠  COCO train2014 exists but only $N images (expected ~83k)"
+    fi
+else
+    echo "  ❌ COCO train2014 not found: $TRAIN2014_DIR"
+fi
+
 # ── Check only mode ────────────────────────────────────────
 if [[ "$MODE" == "check" ]]; then
     echo ""
-    if $all_exist; then
+    if $all_exist && $coco_ok; then
         echo "======================================================"
-        echo " ✅ All dataset files present."
-        echo " Ready to train: bash shared/scripts/start_training.sh main"
+        echo " ✅ All files present. Ready to train."
+        echo " Next: bash shared/scripts/start_training.sh main"
         echo "======================================================"
         exit 0
     else
         echo "======================================================"
-        echo " ❌ Dataset incomplete."
-        echo " Run: bash shared/scripts/download_data.sh"
+        echo " ❌ Some files missing. Run without --check to download."
         echo "======================================================"
         exit 1
     fi
 fi
 
-# ── Already exists and not force mode ─────────────────────
+# ── Already complete, not force ────────────────────────────
 if $all_exist && [[ "$MODE" != "force" ]]; then
     echo ""
     echo "======================================================"
@@ -78,40 +106,39 @@ if $all_exist && [[ "$MODE" != "force" ]]; then
     exit 0
 fi
 
-# ── Download ───────────────────────────────────────────────
+# ── Run stage_1 ────────────────────────────────────────────
 echo ""
-echo "[2/3] Starting download (~2-3 hours)..."
+echo "[3/4] Running stage_1_data_preparation.py..."
+mkdir -p $DATA_DIR $HF_CACHE $COCO_DIR $LOG_DIR
 
-mkdir -p $DATA_DIR $HF_CACHE $LOG_DIR
 TIMESTAMP=$(date +%Y%m%d_%H%M)
 LOG_FILE=$LOG_DIR/stage1_${TIMESTAMP}.log
 
-echo "  Log file: $LOG_FILE"
-echo "  Monitor:  tail -f $LOG_FILE"
+echo "  Log: $LOG_FILE"
+echo "  Monitor: tail -f $LOG_FILE"
 echo ""
 
 cd $REPO_DIR
 
-FORCE_FLAG=""
-if [[ "$MODE" == "force" ]]; then FORCE_FLAG="--force"; fi
-
 python pipeline/stage_1_data_preparation.py \
     --output_dir $DATA_DIR \
-    --hf_home $HF_CACHE \
+    --coco_dir   $COCO_DIR \
+    --hf_home    $HF_CACHE \
     $FORCE_FLAG \
+    $SKIP_COCO \
     2>&1 | tee $LOG_FILE
 
 # ── Verify ─────────────────────────────────────────────────
 echo ""
-echo "[3/3] Verifying downloaded files..."
+echo "[4/4] Verifying downloaded files..."
 
 all_good=true
 for f in "$TRAIN_PKL" "$VAL_PKL" "$TEST_PKL" "$STATS_JSON"; do
-    if [[ -f "$f" ]]; then
+    if [[ -f "$f" && $(wc -c < "$f") -gt 100 ]]; then
         size=$(du -sh "$f" | cut -f1)
         echo "  ✅ $(basename $f) ($size)"
     else
-        echo "  ❌ $(basename $f) — MISSING"
+        echo "  ❌ $(basename $f) — MISSING or EMPTY"
         all_good=false
     fi
 done
@@ -119,7 +146,7 @@ done
 echo ""
 if $all_good; then
     echo "======================================================"
-    echo " ✅ Dataset download complete!"
+    echo " ✅ Data preparation complete!"
     echo ""
     echo " Next steps:"
     echo "   bash shared/scripts/start_training.sh main"
@@ -128,7 +155,7 @@ if $all_good; then
     exit 0
 else
     echo "======================================================"
-    echo " ❌ Download incomplete. Check log:"
+    echo " ❌ Data preparation failed. Check log:"
     echo "    $LOG_FILE"
     echo "======================================================"
     exit 1
