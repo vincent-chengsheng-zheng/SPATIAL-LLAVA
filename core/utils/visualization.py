@@ -194,7 +194,7 @@ def draw_comparison(
     How to interpret the output:
         - Green box = where the object actually is (ground truth)
         - Red box   = where LLaVA thought the object was
-        - FAILED    = LLaVA output could not be parsed → IoU = 0
+        - FAILED    = LLaVA output could not be parsed -> IoU = 0
         - Big gap between red and green = why we need Spatial-LLaVA
 
     Args:
@@ -264,7 +264,7 @@ def draw_comparison(
         )
         draw2.text(
             (5, H + 40),
-            "FAILED: LLaVA couldn't output parseable coords → IoU=0",
+            "FAILED: LLaVA couldn't output parseable coords -> IoU=0",
             fill="gray"
         )
     except Exception as e:
