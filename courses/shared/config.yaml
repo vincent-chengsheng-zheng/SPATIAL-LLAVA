@@ -19,7 +19,7 @@ base:
 
   training:
     batch_size: 4
-    num_workers: 2
+    num_workers: 8
     gradient_accumulation_steps: 4
     log_interval: 50
     eval_interval: 1
@@ -40,13 +40,14 @@ base:
     gradient_checkpointing: true
 
   paths:
-    data_dir: "~/SharedFolder/MDAIE/group6/data/"
+    data_dir: "/tmp/data/" 
     checkpoints_dir: "~/SharedFolder/MDAIE/group6/checkpoints/"
     results_baseline: "~/SharedFolder/MDAIE/group6/results/baseline/"
     results_main: "~/SharedFolder/MDAIE/group6/results/main/"
     results_ablation: "~/SharedFolder/MDAIE/group6/results/ablation/"
     log_dir: "~/SharedFolder/MDAIE/group6/logs/"
-    hf_home: "~/SharedFolder/MDAIE/group6/hf_cache/"
+    hf_home: "/tmp/hf_cache/"  
+    hf_cache: "/tmp/hf_cache/"
 
   eval:
     n_examples: 20

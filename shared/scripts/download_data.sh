@@ -1,20 +1,38 @@
 #!/bin/bash
 # =============================================================
-# shared/scripts/download_data.sh
-#
-# One-command data preparation. Everything runs in /tmp/ (local SSD).
-# SharedFolder is only used for checkpoints/results/logs.
-#
-# Usage:
-#   bash shared/scripts/download_data.sh           # Full pipeline
-#   bash shared/scripts/download_data.sh --check   # Check status only
-#   bash shared/scripts/download_data.sh --force   # Force re-preprocess
-#
-# Steps (auto-resumed if already done):
-#   1. Download COCO zip to /tmp/train2014.zip
-#   2. Extract to /tmp/coco/train2014/
-#   3. Preprocess → pkl files in /tmp/data/
-#   4. Train directly from /tmp/data/
+# 1. 初始化和配置
+# 设置工作目录：tmp 用于临时数据，~/SharedFolder/MDAIE/group6 用于持久化存储
+# 配置缓存目录：/tmp/hf_cache 用于 HuggingFace 数据集
+# 支持三种模式：auto（默认）、check（仅检查状态）、force（强制重新处理）
+# 2. 状态检查
+# 检查 COCO zip 文件是否存在和完整性（13.5GB）
+# 检查 COCO 图像是否已解压（82783 张图片）
+# 检查预处理后的 pkl 文件是否存在
+# 如果使用 --check 参数，仅显示状态不执行下载
+# 3. 智能下载策略
+# 条件下载：只有当 zip 不完整且图像不足时才下载
+# 断点续传：使用 wget -c 支持断点续传
+# 空间优化：下载完成后删除 zip 文件节省空间
+# 4. 图像解压
+# 使用 Python 的 zipfile 模块解压（无需系统 unzip）
+# 支持增量解压：跳过已存在的文件
+# 实时显示进度：每 10000 张图片显示一次进度
+# 5. 数据预处理
+# 调用 stage_1_data_preparation.py 脚本
+# 参数配置：
+# 输出目录：/tmp/data/
+# COCO 目录：/tmp/coco/
+# 跳过 COCO 下载（已完成）
+# 支持 --force 强制重新处理
+# 日志记录到 SharedFolder/logs/
+# 6. 最终验证
+# 检查所有输出文件是否存在且不为空
+# 显示文件大小统计
+# 成功时提示下一步：运行训练脚本
+# 7. 错误处理
+# 任何步骤失败都会终止脚本
+# 提供详细的日志文件路径用于调试
+# 清晰的状态反馈（✅/❌/⚠️）
 # =============================================================
 
 set -e
