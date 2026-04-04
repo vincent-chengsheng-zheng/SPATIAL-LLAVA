@@ -252,7 +252,7 @@ def draw_comparison(
         canvas.paste(img, (0, 0))
         draw2 = ImageDraw.Draw(canvas)
 
-        status = "PARSED ✓" if parsed else "FAILED ✗"
+        status = "PARSED OK" if parsed else "FAILED"
         status_color = "lime" if parsed else "red"
         prefix = f"[{model_name.upper()}] [{status}]"
 
