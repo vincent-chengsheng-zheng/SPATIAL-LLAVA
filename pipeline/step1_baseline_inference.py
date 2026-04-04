@@ -57,7 +57,6 @@ from core.model.llava import StandardLLaVA               # noqa: E402
 from core.data.refcoco_loader_pil import RefCOCODatasetPIL  # noqa: E402
 from core.utils.metrics import compute_all_metrics        # noqa: E402
 from core.utils.visualization import draw_comparison  # noqa: E402
-from core.data.preprocessing import PROMPT_TEMPLATE  # noqa: E402    # noqa: E402
 
 
 SHARED_RESULTS = os.path.expanduser(
@@ -67,70 +66,52 @@ SHARED_RESULTS = os.path.expanduser(
 
 # ── Inference loop ────────────────────────────────────────────────────────────
 
-def run_inference(model, dataset, max_new_tokens=50, batch_size=8):
+def run_inference(model, dataset, max_new_tokens=50):
     results = []
     total = len(dataset)
     parse_success = 0
     t_start = time.time()
 
-    print(f"  Running inference on {total:,} samples (batch_size={batch_size})...")
+    print(f"  Running inference on {total:,} samples...")
 
-    for batch_start in range(0, total, batch_size):
-        batch_indices = range(batch_start, min(batch_start + batch_size, total))
-        batch_samples = [dataset[i] for i in batch_indices]
-
-        # Process batch
-        images = [s["image"] for s in batch_samples]
-        texts = [s["text"] for s in batch_samples]
-
-        # Batch generate
-        device = next(model.model.parameters()).device
-        prompts = [model.processor.apply_chat_template(
-            [{"role": "user", "content": f"<image>\n{PROMPT_TEMPLATE.format(text=t)}"}],
-            add_generation_prompt=True
-        ) for t in texts]
-
-        inputs = model.processor(
-            text=prompts,
-            images=images,
-            return_tensors="pt",
-            padding=True,
-        ).to(device)
-
-        with torch.no_grad():
-            output_ids = model.model.generate(
-                **inputs,
+    for i in range(total):
+        try:
+            sample = dataset[i]
+            raw = model.generate(
+                pil_image=sample["image"],
+                text=sample["text"],
                 max_new_tokens=max_new_tokens,
-                do_sample=False,
             )
+        except Exception as e:
+            raw = f"ERROR: {e}"
 
-        input_len = inputs["input_ids"].shape[1]
-        for i, idx in enumerate(batch_indices):
-            new_tokens = output_ids[i][input_len:]
-            raw = model.processor.decode(new_tokens, skip_special_tokens=True).strip()
-            parsed_bbox = StandardLLaVA.parse_bbox(raw)
-            parsed = parsed_bbox is not None
-            if parsed:
-                parse_success += 1
-            results.append({
-                "idx": idx,
-                "pred_bbox": parsed_bbox or [0.0, 0.0, 0.0, 0.0],
-                "gt_bbox": batch_samples[i]["bbox"].tolist(),
-                "raw_output": raw,
-                "parsed": parsed,
-            })
+        parsed_bbox = StandardLLaVA.parse_bbox(raw)
+        parsed = parsed_bbox is not None
+        if parsed:
+            parse_success += 1
 
-        done = len(results)
-        if done % 100 == 0 or done == total:
+        results.append({
+            "idx": i,
+            "pred_bbox": parsed_bbox or [0.0, 0.0, 0.0, 0.0],
+            "gt_bbox": dataset[i]["bbox"].tolist(),
+            "raw_output": raw,
+            "parsed": parsed,
+        })
+
+        if (i + 1) % 100 == 0 or (i + 1) == total:
             elapsed = time.time() - t_start
-            eta = (total - done) / (done / elapsed)
-            print(f"  [{done:,}/{total:,}]  parse={parse_success/done*100:.1f}%  "
-                  f"elapsed={elapsed/60:.1f}min  ETA={eta/60:.1f}min")
+            eta = (total - i - 1) / max((i + 1) / elapsed, 1e-6)
+            print(
+                f"  [{i+1:,}/{total:,}]  "
+                f"parse={parse_success/(i+1)*100:.1f}%  "
+                f"elapsed={elapsed/60:.1f}min  "
+                f"ETA={eta/60:.1f}min"
+            )
 
     return results
 
-
 # ── Save visualizations ───────────────────────────────────────────────────────
+
 
 def save_visualizations(
     dataset: RefCOCODatasetPIL,
@@ -389,6 +370,5 @@ if __name__ == "__main__":
         "--max_new_tokens", type=int, default=50,
         help="Max tokens to generate per sample (default: 50)"
     )
-    parser.add_argument("--batch_size", type=int, default=8)
     args = parser.parse_args()
     main(args)
