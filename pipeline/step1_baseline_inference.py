@@ -425,7 +425,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--hf_cache", type=str,
-        default="~/SharedFolder/MDAIE/group6/hf_cache/",
+        default="/tmp/hf_cache",
         help="HuggingFace cache dir (SharedFolder for persistence)"
     )
     parser.add_argument(
