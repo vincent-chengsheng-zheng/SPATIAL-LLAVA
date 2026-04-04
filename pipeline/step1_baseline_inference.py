@@ -56,7 +56,8 @@ sys.path.insert(
 from core.model.llava import StandardLLaVA               # noqa: E402
 from core.data.refcoco_loader_pil import RefCOCODatasetPIL  # noqa: E402
 from core.utils.metrics import compute_all_metrics        # noqa: E402
-from core.utils.visualization import draw_comparison      # noqa: E402
+from core.utils.visualization import draw_comparison  # noqa: E402
+from core.data.preprocessing import PROMPT_TEMPLATE  # noqa: E402    # noqa: E402
 
 
 SHARED_RESULTS = os.path.expanduser(
@@ -66,109 +67,65 @@ SHARED_RESULTS = os.path.expanduser(
 
 # ── Inference loop ────────────────────────────────────────────────────────────
 
-def run_inference(
-    model: StandardLLaVA,
-    dataset: RefCOCODatasetPIL,
-    max_new_tokens: int = 50,
-) -> list:
-    """
-    Run LLaVA inference on all samples in the dataset.
-
-    What this does:
-        1. Iterate over dataset samples one by one (no DataLoader batching
-           because LLaVA processor doesn't support batch PIL input easily)
-        2. Call model.generate() for each sample
-        3. Call StandardLLaVA.parse_bbox() to extract coordinates
-        4. Record results, track parse rate and timing
-        5. Print progress every 100 samples with ETA
-
-    Args:
-        model          : StandardLLaVA loaded and on device
-        dataset        : RefCOCODatasetPIL test split
-        max_new_tokens : Max tokens to generate (default: 50)
-
-    Returns:
-        List of dicts:
-            {
-                "idx"       : int   dataset index
-                "pred_bbox" : list  [xc,yc,w,h] or [0,0,0,0] if failed
-                "gt_bbox"   : list  [xc,yc,w,h] ground truth
-                "raw_output": str   raw LLaVA text
-                "parsed"    : bool  whether parse succeeded
-            }
-
-    Raises:
-        RuntimeError : If model.generate() fails on first sample
-    """
+def run_inference(model, dataset, max_new_tokens=50, batch_size=8):
     results = []
     total = len(dataset)
     parse_success = 0
     t_start = time.time()
 
-    print(f"  Running inference on {total:,} samples...")
-    print("  Expected: ~400ms/sample → ~13 min total on A100")
+    print(f"  Running inference on {total:,} samples (batch_size={batch_size})...")
 
-    for i in range(total):
+    for batch_start in range(0, total, batch_size):
+        batch_indices = range(batch_start, min(batch_start + batch_size, total))
+        batch_samples = [dataset[i] for i in batch_indices]
 
-        # Load sample
-        try:
-            sample = dataset[i]
-        except Exception as e:
-            print(f"  ⚠ [step1] Failed to load sample idx={i}: {e}")
-            results.append({
-                "idx": i,
-                "pred_bbox": [0.0, 0.0, 0.0, 0.0],
-                "gt_bbox": [0.0, 0.0, 0.0, 0.0],
-                "raw_output": f"LOAD_ERROR: {e}",
-                "parsed": False,
-            })
-            continue
+        # Process batch
+        images = [s["image"] for s in batch_samples]
+        texts = [s["text"] for s in batch_samples]
 
-        pil_image = sample["image"]
-        text = sample["text"]
-        gt_bbox = sample["bbox"].tolist()
+        # Batch generate
+        device = next(model.model.parameters()).device
+        prompts = [model.processor.apply_chat_template(
+            [{"role": "user", "content": f"<image>\n{PROMPT_TEMPLATE.format(text=t)}"}],
+            add_generation_prompt=True
+        ) for t in texts]
 
-        # Run LLaVA generation
-        try:
-            raw_output = model.generate(
-                pil_image=pil_image,
-                text=text,
+        inputs = model.processor(
+            text=prompts,
+            images=images,
+            return_tensors="pt",
+            padding=True,
+        ).to(device)
+
+        with torch.no_grad():
+            output_ids = model.model.generate(
+                **inputs,
                 max_new_tokens=max_new_tokens,
+                do_sample=False,
             )
-        except Exception as e:
-            print(f"  ⚠ [step1] generate() failed at idx={i}: {e}")
-            raw_output = f"GENERATE_ERROR: {e}"
 
-        # Parse bbox from text
-        parsed_bbox = StandardLLaVA.parse_bbox(raw_output)
-        parsed = parsed_bbox is not None
+        input_len = inputs["input_ids"].shape[1]
+        for i, idx in enumerate(batch_indices):
+            new_tokens = output_ids[i][input_len:]
+            raw = model.processor.decode(new_tokens, skip_special_tokens=True).strip()
+            parsed_bbox = StandardLLaVA.parse_bbox(raw)
+            parsed = parsed_bbox is not None
+            if parsed:
+                parse_success += 1
+            results.append({
+                "idx": idx,
+                "pred_bbox": parsed_bbox or [0.0, 0.0, 0.0, 0.0],
+                "gt_bbox": batch_samples[i]["bbox"].tolist(),
+                "raw_output": raw,
+                "parsed": parsed,
+            })
 
-        if parsed:
-            parse_success += 1
-            pred_bbox = parsed_bbox
-        else:
-            pred_bbox = [0.0, 0.0, 0.0, 0.0]  # parse failed → IoU = 0
-
-        results.append({
-            "idx": i,
-            "pred_bbox": pred_bbox,
-            "gt_bbox": gt_bbox,
-            "raw_output": raw_output,
-            "parsed": parsed,
-        })
-
-        # Progress log every 100 samples
-        if (i + 1) % 100 == 0 or (i + 1) == total:
+        done = len(results)
+        if done % 100 == 0 or done == total:
             elapsed = time.time() - t_start
-            rate = (i + 1) / max(elapsed, 1e-6)
-            eta = (total - i - 1) / rate
-            current_parse_rate = parse_success / (i + 1) * 100
-            print(
-                f"  [{i+1:,}/{total:,}]  "
-                f"parse={current_parse_rate:.1f}%  "
-                f"elapsed={elapsed/60:.1f}min  "
-                f"ETA={eta/60:.1f}min"
-            )
+            eta = (total - done) / (done / elapsed)
+            print(f"  [{done:,}/{total:,}]  parse={parse_success/done*100:.1f}%  "
+                  f"elapsed={elapsed/60:.1f}min  ETA={eta/60:.1f}min")
 
     return results
 
@@ -432,5 +389,6 @@ if __name__ == "__main__":
         "--max_new_tokens", type=int, default=50,
         help="Max tokens to generate per sample (default: 50)"
     )
+    parser.add_argument("--batch_size", type=int, default=8)
     args = parser.parse_args()
     main(args)
