@@ -54,6 +54,7 @@ sys.path.insert(
 )
 
 from core.model.llava import StandardLLaVA               # noqa: E402
+from core.data.preprocessing import PROMPT_TEMPLATE       # noqa: E402
 from core.data.refcoco_loader_pil import RefCOCODatasetPIL  # noqa: E402
 from core.utils.metrics import compute_all_metrics        # noqa: E402
 from core.utils.visualization import draw_comparison  # noqa: E402
@@ -66,44 +67,82 @@ SHARED_RESULTS = os.path.expanduser(
 
 # ── Inference loop ────────────────────────────────────────────────────────────
 
-def run_inference(model, dataset, max_new_tokens=50):
+def run_inference(model, dataset, max_new_tokens=50, batch_size=8):
     results = []
     total = len(dataset)
     parse_success = 0
     t_start = time.time()
 
-    print(f"  Running inference on {total:,} samples...")
+    print(f"  Running inference on {total:,} samples (batch_size={batch_size})...")
 
-    for i in range(total):
+    for batch_start in range(0, total, batch_size):
+        batch_end = min(batch_start + batch_size, total)
+        batch_samples = [dataset[i] for i in range(batch_start, batch_end)]
+
+        images = [s["image"] for s in batch_samples]
+        texts = [s["text"] for s in batch_samples]
+        prompts = [PROMPT_TEMPLATE.format(text=t) for t in texts]
+
+        device = next(model.model.parameters()).device
         try:
-            sample = dataset[i]
-            raw = model.generate(
-                pil_image=sample["image"],
-                text=sample["text"],
-                max_new_tokens=max_new_tokens,
-            )
+            inputs = model.processor(
+                text=prompts,
+                images=images,
+                return_tensors="pt",
+                padding=True,
+            ).to(device)
+
+            with torch.no_grad():
+                output_ids = model.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                )
+
+            input_len = inputs["input_ids"].shape[1]
+            for i, sample in enumerate(batch_samples):
+                new_tokens = output_ids[i][input_len:]
+                raw = model.processor.decode(
+                    new_tokens, skip_special_tokens=True
+                ).strip()
+                parsed_bbox = StandardLLaVA.parse_bbox(raw)
+                parsed = parsed_bbox is not None
+                if parsed:
+                    parse_success += 1
+                results.append({
+                    "idx": batch_start + i,
+                    "pred_bbox": parsed_bbox or [0.0, 0.0, 0.0, 0.0],
+                    "gt_bbox": sample["bbox"].tolist(),
+                    "raw_output": raw,
+                    "parsed": parsed,
+                })
+
         except Exception as e:
-            raw = f"ERROR: {e}"
+            print(f"  ⚠ Batch {batch_start}-{batch_end} failed: {e}, falling back to single")
+            for i, sample in enumerate(batch_samples):
+                try:
+                    raw = model.generate(sample["image"], sample["text"], max_new_tokens)
+                except Exception as e2:
+                    raw = f"ERROR: {e2}"
+                parsed_bbox = StandardLLaVA.parse_bbox(raw)
+                parsed = parsed_bbox is not None
+                if parsed:
+                    parse_success += 1
+                results.append({
+                    "idx": batch_start + i,
+                    "pred_bbox": parsed_bbox or [0.0, 0.0, 0.0, 0.0],
+                    "gt_bbox": sample["bbox"].tolist(),
+                    "raw_output": raw,
+                    "parsed": parsed,
+                })
 
-        parsed_bbox = StandardLLaVA.parse_bbox(raw)
-        parsed = parsed_bbox is not None
-        if parsed:
-            parse_success += 1
-
-        results.append({
-            "idx": i,
-            "pred_bbox": parsed_bbox or [0.0, 0.0, 0.0, 0.0],
-            "gt_bbox": dataset[i]["bbox"].tolist(),
-            "raw_output": raw,
-            "parsed": parsed,
-        })
-
-        if (i + 1) % 100 == 0 or (i + 1) == total:
+        done = len(results)
+        if done % 100 == 0 or done == total:
             elapsed = time.time() - t_start
-            eta = (total - i - 1) / max((i + 1) / elapsed, 1e-6)
+            eta = (total - done) / max(done / elapsed, 1e-6)
             print(
-                f"  [{i+1:,}/{total:,}]  "
-                f"parse={parse_success/(i+1)*100:.1f}%  "
+                f"  [{done:,}/{total:,}]  "
+                f"parse={parse_success/done*100:.1f}%  "
                 f"elapsed={elapsed/60:.1f}min  "
                 f"ETA={eta/60:.1f}min"
             )
@@ -369,6 +408,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_new_tokens", type=int, default=50,
         help="Max tokens to generate per sample (default: 50)"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=8,
+        help="Batch size for inference (default: 8)"
     )
     args = parser.parse_args()
     main(args)
