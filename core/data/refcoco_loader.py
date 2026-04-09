@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from core.paths import PATHS  # noqa: E402
 
 # Prompt template — must match baseline exactly
-PROMPT_TEMPLATE = "Find the object referred to: {text} [LOC]"
+PROMPT_TEMPLATE = "<image>\nFind the object referred to: {text} [LOC]"
 
 
 # ── Dataset ───────────────────────────────────────────────────────────────────
