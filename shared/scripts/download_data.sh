@@ -46,7 +46,7 @@ echo " Mode    : $MODE"
 echo " Started : $(date)"
 echo "======================================================"
 
-count_imgs() { ls "$COCO_TRAIN"/*.jpg 2>/dev/null | wc -l; }
+count_imgs() { find "$COCO_TRAIN" -maxdepth 1 -name "*.jpg" 2>/dev/null | wc -l; }
 
 # ── Status check ──────────────────────────────────────────────────────────────
 echo ""
