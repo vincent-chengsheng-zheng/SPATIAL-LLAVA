@@ -31,18 +31,9 @@ from core.data.refcoco_loader import make_loaders
 from core.loss.spatial_loss import SpatialLoss
 
 
-def run(model, processor, batch_size=4, n_steps=10):
-    """
-    Profile training substeps using a pre-loaded model.
-
-    Args:
-        model      : SpatialLLaVA instance (already on GPU)
-        processor  : LlavaProcessor instance
-        batch_size : batch size to profile with
-        n_steps    : number of steps to profile
-    """
+def run(model, processor, batch_size=4, n_steps=10, num_workers=0):
     train_loader, _ = make_loaders(
-        processor, batch_size=batch_size, num_workers=0,
+        processor, batch_size=batch_size, num_workers=num_workers,
         max_length=600, max_samples=batch_size * n_steps * 2
     )
     criterion = SpatialLoss()
