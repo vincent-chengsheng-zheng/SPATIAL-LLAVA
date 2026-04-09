@@ -27,8 +27,8 @@ Usage:
 
     # or manually:
     python pipeline/stage_1_data_preparation.py \\
-        --output_dir /tmp/data/ \\
-        --coco_dir   /tmp/coco/ \\
+        --output_dir data/ \\
+        --coco_dir   data/coco/ \\
         --skip_coco_download
 """
 
@@ -45,12 +45,13 @@ from typing import List, Dict
 
 import torch
 
-# Add repo root to path so core/ is importable
+# ── sys.path must be set before any core/ imports ─────────────────────────────
 sys.path.insert(
     0,
     os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 )
 
+from core.paths import PATHS                  # noqa: E402
 from core.data.preprocessing import normalize_bbox  # noqa: E402
 
 
@@ -119,7 +120,7 @@ def resolve_image_path(raw: dict, coco_dir: str) -> str:
         "coco/train2014/COCO_train2014_000000581857.jpg"
 
     We strip "coco/" and join with coco_dir to get:
-        /tmp/coco/train2014/COCO_train2014_000000581857.jpg
+        <repo>/data/coco/train2014/COCO_train2014_000000581857.jpg
     """
     image_path = raw.get("image_path", "")
     parts = image_path.replace("\\", "/").split("/")
@@ -199,7 +200,8 @@ def download_coco_images(coco_dir: str) -> bool:
     """
     coco_dir = os.path.expanduser(coco_dir)
     train2014_dir = os.path.join(coco_dir, "train2014")
-    zip_path = os.path.join(coco_dir, "train2014.zip")
+    # zip stays in /tmp to avoid filling the repo with a 13GB file
+    zip_path = "/tmp/train2014.zip"
     os.makedirs(coco_dir, exist_ok=True)
 
     # Already extracted?
@@ -223,7 +225,7 @@ def download_coco_images(coco_dir: str) -> bool:
 
     ok = _extract_zip(zip_path, coco_dir)
     if ok:
-        print("  Removing zip to free /tmp/ space...")
+        print("  Removing zip from /tmp/ ...")
         os.remove(zip_path)
     return ok
 
@@ -248,7 +250,7 @@ def preprocess_sample(raw: dict, coco_dir: str) -> Dict:
 
     Args:
         raw      : One sample dict from jxu124/refcoco HuggingFace dataset
-        coco_dir : Path to the COCO images directory (e.g. /tmp/coco/)
+        coco_dir : Path to the COCO images directory (e.g. data/coco/)
 
     Returns:
         {
@@ -438,7 +440,7 @@ def main(args):
     output_dir = os.path.expanduser(args.output_dir)
     coco_dir = os.path.expanduser(args.coco_dir)
     hf_home = os.path.expanduser(
-        args.hf_home or os.environ.get("HF_HOME", "/tmp/hf_cache")
+        args.hf_home or os.environ.get("HF_HOME", str(PATHS.weights))
     )
 
     os.makedirs(output_dir, exist_ok=True)
@@ -530,16 +532,16 @@ if __name__ == "__main__":
         description="Stage 1: RefCOCO Data Preparation (v3 — paths only)"
     )
     parser.add_argument(
-        "--output_dir", type=str, default="/tmp/data/",
-        help="Where to save pkl files (default: /tmp/data/)"
+        "--output_dir", type=str, default=str(PATHS.data),
+        help=f"Where to save pkl files (default: {PATHS.data})"
     )
     parser.add_argument(
-        "--coco_dir", type=str, default="/tmp/coco/",
-        help="COCO images dir. Expected: <coco_dir>/train2014/*.jpg"
+        "--coco_dir", type=str, default=str(PATHS.coco),
+        help=f"COCO images dir. Expected: <coco_dir>/train2014/*.jpg (default: {PATHS.coco})"
     )
     parser.add_argument(
         "--hf_home", type=str, default=None,
-        help="HuggingFace cache dir (default: /tmp/hf_cache)"
+        help=f"HuggingFace cache dir (default: {PATHS.weights})"
     )
     parser.add_argument(
         "--force", action="store_true",

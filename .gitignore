@@ -1,23 +1,23 @@
-# ── Large files (never commit these) ──────────────────────
-*.pkl
+# =============================================================================
+# Spatial-LLaVA .gitignore
+# Optimized for ML/DL projects with large datasets and model checkpoints
+# =============================================================================
+
+# ── LARGE MODEL/DATA FILES (never commit these) ──────────────────────────────
+# Model weights and checkpoints
 *.pth
 *.pt
 *.safetensors
 *.bin
+*.onnx
+*.h5
 
-# ── Data directory (keep folder, ignore contents) ──────────
-data/*
-!data/.gitkeep
+# Serialized data
+*.pkl
+*.pickle
 
-# ── Checkpoints (keep folders, ignore contents) ────────────
-checkpoints/*
-!checkpoints/.gitkeep
-!checkpoints/coursework/
-!checkpoints/coursework/.gitkeep
-!checkpoints/enterprise/
-!checkpoints/enterprise/.gitkeep
-
-# ── Results (keep folders, ignore contents) ────────────────
+# ── GENERATED RESULTS & OUTPUTS (regenerated from training/inference) ────────
+# Keep directories but ignore contents
 results/*
 !results/.gitkeep
 !results/coursework/
@@ -25,69 +25,148 @@ results/*
 !results/enterprise/
 !results/enterprise/.gitkeep
 
-# ── Logs (keep folder, ignore contents) ────────────────────
+# Generated visualization files
+*.png
+*.jpg
+*.jpeg
+viz_test.png
+
+# Training logs and metrics
 logs/*
 !logs/.gitkeep
 *.log
 nohup.out
 
-# ── HuggingFace cache ──────────────────────────────────────
+# ── CACHE DIRECTORIES (downloaded/generated at runtime) ──────────────────────
+# HuggingFace and other ML caches
 .cache/
 hf_cache/
+weights/
+transformers_cache/
 
-# ── Python ─────────────────────────────────────────────────
+# Python caches
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ── DATA DIRECTORIES (keep structure, ignore contents) ───────────────────────
+# Raw datasets (downloaded at runtime)
+data/*
+!data/.gitkeep
+
+# COCO images (13GB+)
+data/coco/
+data/*.zip
+
+# ── CHECKPOINTS (keep structure, ignore large files) ─────────────────────────
+checkpoints/*
+!checkpoints/.gitkeep
+!checkpoints/coursework/
+!checkpoints/coursework/.gitkeep
+!checkpoints/enterprise/
+!checkpoints/enterprise/.gitkeep
+
+# Specific checkpoint patterns (redundant but explicit)
+checkpoints/**/*.pth
+checkpoints/**/*.pt
+checkpoints/**/*.safetensors
+
+# ── DEVELOPMENT ENVIRONMENT ──────────────────────────────────────────────────
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Package management
 *.egg-info/
 dist/
 build/
 .eggs/
 
-# ── Virtual environments ────────────────────────────────────
-.venv/
-venv/
-env/
-
-# ── Jupyter ─────────────────────────────────────────────────
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# ── Docker ──────────────────────────────────────────────────
-.dockerignore
-
-# ── Environment variables ───────────────────────────────────
+# Environment files
 .env
 .env.local
+.env.*.local
 
-# ── OS files ────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# ── IDE & EDITOR FILES ───────────────────────────────────────────────────────
+# VS Code
+.vscode/
+*.code-workspace
+
+# PyCharm/IntelliJ
+.idea/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
 *.swp
 *.swo
+*~
 
-# ── IDE ─────────────────────────────────────────────────────
-.vscode/
-.idea/
-*.sublime-project.coverage
-
-# Generated files
-*.png
-*.jpg
+# ── OPERATING SYSTEM FILES ───────────────────────────────────────────────────
+# macOS
 .DS_Store
-.coverage
-viz_test.png
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# Results (regenerated from training)
-results/coursework/*
-results/enterprise/*
-!results/coursework/.gitkeep
-!results/enterprise/.gitkeep
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Checkpoints
-checkpoints/coursework/*.pth
-checkpoints/enterprise/*.pth
-.cache/
+# Linux
+*~
+
+# ── TEMPORARY & BACKUP FILES ─────────────────────────────────────────────────
+# Backup files
+*.bak
+*.backup
+*.tmp
+*.temp
+
+# Archive files (usually temporary)
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# ── DOCKER ───────────────────────────────────────────────────────────────────
+.dockerignore
+
+# ── CI/CD & DEPLOYMENT ───────────────────────────────────────────────────────
+# Docker volumes and containers
+docker-volumes/
+
+# Build artifacts
+target/
+*.war
+*.jar
+
+# ── MISCELLANEOUS ────────────────────────────────────────────────────────────
+# Personal notes (if any)
 For_Myself.md
+
+# Node.js (if any frontend components)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

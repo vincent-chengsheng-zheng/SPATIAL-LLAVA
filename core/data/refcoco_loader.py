@@ -35,7 +35,7 @@ Usage:
     from core.data.refcoco_loader import RefCOCODataset
 
     train_ds = RefCOCODataset.from_config(
-        {"data_dir": "/tmp/data/"}, split="train"
+        {"data_dir": "data/"}, split="train"
     )
     loader = train_ds.get_dataloader(batch_size=4, num_workers=8)
 """
@@ -52,11 +52,12 @@ from transformers import AutoTokenizer
 
 from core.data.preprocessing import LOC_TOKEN, MAX_LENGTH, IMAGE_SIZE
 from core.data.preprocessing import IMAGENET_MEAN, IMAGENET_STD
+from core.paths import PATHS
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-LLAVA_MODEL_ID = "liuhaotian/llava-v1.5-7b"
+LLAVA_MODEL_ID = "llava-hf/llava-1.5-7b-hf"
 PROMPT_TEMPLATE = "Find the object referred to: {} [LOC]"
 
 # Image transform applied in __getitem__ for each loaded JPEG
@@ -95,8 +96,10 @@ class RefCOCODataset(Dataset):
         pkl_path: str,
         split: str = "train",
         tokenizer=None,
-        hf_cache: str = "/tmp/hf_cache",
+        hf_cache: str = None,
     ):
+        if hf_cache is None:
+            hf_cache = str(PATHS.weights)
         self.split = split
         self.pkl_path = os.path.expanduser(pkl_path)
         self.data = self._load_pkl(self.pkl_path)
@@ -273,7 +276,7 @@ class RefCOCODataset(Dataset):
         """
         data_dir = os.path.expanduser(config["data_dir"])
         pkl_path = os.path.join(data_dir, f"refcoco_{split}.pkl")
-        hf_cache = config.get("hf_cache", "/tmp/hf_cache")
+        hf_cache = config.get("hf_cache", str(PATHS.weights))
         return cls(
             pkl_path=pkl_path,
             split=split,
@@ -285,9 +288,9 @@ class RefCOCODataset(Dataset):
 # ── Convenience function ──────────────────────────────────────────────────────
 
 def load_splits(
-    data_dir: str,
+    data_dir: str = None,
     splits: Optional[list] = None,
-    hf_cache: str = "/tmp/hf_cache",
+    hf_cache: str = None,
 ) -> Dict[str, RefCOCODataset]:
     """
     Load multiple splits at once, sharing one tokenizer.
@@ -298,17 +301,21 @@ def load_splits(
         3. Return dict of datasets
 
     Args:
-        data_dir : Directory with refcoco_*.pkl files
+        data_dir : Directory with refcoco_*.pkl files (default: PATHS.data)
         splits   : Which splits to load (default: all three)
-        hf_cache : Tokenizer cache directory
+        hf_cache : Tokenizer cache directory (default: PATHS.weights)
 
     Returns:
         {"train": RefCOCODataset, "val": ..., "test": ...}
 
     Example:
-        datasets = load_splits("/tmp/data/")
+        datasets = load_splits()
         loader = datasets["train"].get_dataloader(batch_size=8)
     """
+    if data_dir is None:
+        data_dir = str(PATHS.data)
+    if hf_cache is None:
+        hf_cache = str(PATHS.weights)
     if splits is None:
         splits = ["train", "val", "test"]
 

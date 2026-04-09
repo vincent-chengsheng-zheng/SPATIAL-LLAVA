@@ -1,11 +1,7 @@
 # courses/shared/config.yaml
 #
-# Unified training configuration for Spatial-LLaVA.
-#
-# Structure:
-#   base     — shared defaults for both modes
-#   main     — overrides for main training (LoRA + head, 10 epochs)
-#   ablation — overrides for ablation (head only, 3 epochs)
+# All paths are relative to PROJECT_ROOT (repo root).
+# Resolved at runtime by core.paths.PATHS — no hardcoded /tmp/ or ~/SharedFolder.
 
 # ── Base (shared defaults) ────────────────────────────────────────────────────
 base:
@@ -39,24 +35,22 @@ base:
     fp16: true
     gradient_checkpointing: true
 
+  # All paths resolved via core.paths.PATHS at runtime — do not hardcode here
   paths:
-    data_dir: "/tmp/data/" 
-    checkpoints_dir: "~/SharedFolder/MDAIE/group6/checkpoints/"
-    results_baseline: "~/SharedFolder/MDAIE/group6/results/baseline/"
-    results_main: "~/SharedFolder/MDAIE/group6/results/main/"
-    results_ablation: "~/SharedFolder/MDAIE/group6/results/ablation/"
-    log_dir: "~/SharedFolder/MDAIE/group6/logs/"
-    hf_home: "/tmp/hf_cache/"  
-    hf_cache: "/tmp/hf_cache/"
+    data_dir:            "data/"
+    coco_dir:            "data/coco/"
+    weights_dir:         "weights/"
+    checkpoints_dir:     "checkpoints/"
+    results_baseline:    "results/baseline/"
+    results_main:        "results/main/"
+    results_ablation:    "results/ablation/"
+    log_dir:             "logs/"
 
   eval:
     n_examples: 20
     failure_iou_threshold: 0.3
 
 # ── Main training ─────────────────────────────────────────────────────────────
-# LoRA + regression head, 10 epochs
-# Member 4 uses epoch 10 for FastAPI (61.502)
-# Member 3 uses epoch 3 checkpoint for Gradio demo (51.511)
 main:
   training:
     num_epochs: 10
@@ -66,12 +60,10 @@ main:
     warmup_steps: 1000
 
   paths:
-    output_dir: "~/SharedFolder/MDAIE/group6/checkpoints/main/"
-    results_dir: "~/SharedFolder/MDAIE/group6/results/main/"
+    output_dir:   "checkpoints/main/"
+    results_dir:  "results/main/"
 
 # ── Ablation training ─────────────────────────────────────────────────────────
-# Head only, LLM frozen, 3 epochs
-# Proves contribution of LoRA in 3-way comparison
 ablation:
   training:
     num_epochs: 3
@@ -82,5 +74,5 @@ ablation:
     warmup_steps: 200
 
   paths:
-    output_dir: "~/SharedFolder/MDAIE/group6/checkpoints/ablation/"
-    results_dir: "~/SharedFolder/MDAIE/group6/results/ablation/"
+    output_dir:   "checkpoints/ablation/"
+    results_dir:  "results/ablation/"

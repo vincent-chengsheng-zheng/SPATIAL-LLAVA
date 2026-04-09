@@ -3,81 +3,66 @@
 # shared/scripts/setup_cluster.sh
 #
 # Run after each new login to the SUTD AIMC Edu Cluster.
-# Usage: source shared/scripts/setup_cluster.sh
+# Usage:
+#   cd /tmp && git clone <repo> spatial-llava && cd spatial-llava
+#   source shared/scripts/setup_cluster.sh
 #
 # Steps:
-#   1. Set environment variables
-#   2. Create SharedFolder directories
+#   1. Locate repo root (works from any working directory)
+#   2. Create all runtime directories inside the repo
 #   3. Install dependencies
 #   4. Run Stage 0 environment check
 # =============================================================
 
 set -e
 
-BASE_DIR=~/SharedFolder/MDAIE/group6
-REPO_DIR=~/spatial-llava
+# ── Locate repo root ───────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 echo "======================================================"
-echo " Spatial-LLaVA — Cluster Setup (Group 6)"
-echo " Base directory: $BASE_DIR"
+echo " Spatial-LLaVA — Cluster Setup"
+echo " Repo root: $REPO_DIR"
+echo " Started  : $(date)"
 echo "======================================================"
 
-# ── Step 1: Persistent environment variables ───────────────
+# ── Step 1: Create runtime directories ────────────────────────────────────────
 echo ""
-echo "[1/4] Setting up environment variables..."
+echo "[1/3] Creating runtime directories..."
 
-touch ~/.bashrc
-if ! grep -q "SPATIAL_BASE" ~/.bashrc; then
-    echo "export SPATIAL_BASE=$BASE_DIR" >> ~/.bashrc
-    echo "export HF_HOME=$BASE_DIR/hf_cache" >> ~/.bashrc
-    echo "export SPATIAL_DATA=$BASE_DIR/data" >> ~/.bashrc
-    echo "export SPATIAL_CKPT=$BASE_DIR/checkpoints" >> ~/.bashrc
-    echo "export SPATIAL_RESULTS=$BASE_DIR/results" >> ~/.bashrc
-    echo "export SPATIAL_LOGS=$BASE_DIR/logs" >> ~/.bashrc
-    echo "      Added all SPATIAL_* variables to ~/.bashrc"
-else
-    echo "      Variables already set in ~/.bashrc, skipping"
-fi
+mkdir -p "$REPO_DIR/data/coco/train2014"
+mkdir -p "$REPO_DIR/weights"
+mkdir -p "$REPO_DIR/checkpoints/main"
+mkdir -p "$REPO_DIR/checkpoints/ablation"
+mkdir -p "$REPO_DIR/results/baseline"
+mkdir -p "$REPO_DIR/results/main"
+mkdir -p "$REPO_DIR/results/ablation"
+mkdir -p "$REPO_DIR/logs"
 
-export SPATIAL_BASE=$BASE_DIR
-export HF_HOME=$BASE_DIR/hf_cache
-export SPATIAL_DATA=$BASE_DIR/data
-export SPATIAL_CKPT=$BASE_DIR/checkpoints
-export SPATIAL_RESULTS=$BASE_DIR/results
-export SPATIAL_LOGS=$BASE_DIR/logs
+echo "  $REPO_DIR/"
+echo "  ├── data/coco/train2014/   (COCO images — gitignored)"
+echo "  ├── weights/               (HF model weights — gitignored)"
+echo "  ├── checkpoints/           (training ckpts — gitignored)"
+echo "  ├── results/               (metrics + viz — git tracked)"
+echo "  └── logs/                  (training logs — git tracked)"
 
-# ── Step 2: Create directory structure ─────────────────────
+# ── Step 2: Install dependencies ──────────────────────────────────────────────
 echo ""
-echo "[2/4] Creating SharedFolder directories..."
+echo "[2/3] Installing dependencies..."
 
-mkdir -p $BASE_DIR/hf_cache
-mkdir -p $BASE_DIR/checkpoints/main
-mkdir -p $BASE_DIR/checkpoints/ablation
-mkdir -p $BASE_DIR/results/main
-mkdir -p $BASE_DIR/results/ablation
-mkdir -p $BASE_DIR/logs
-
-echo "      $BASE_DIR/"
-echo "      ├── hf_cache/             (HuggingFace cache)"
-echo "      ├── checkpoints/main/     (LoRA + head, 10 epochs)"
-echo "      ├── checkpoints/ablation/ (head only, 3 epochs)"
-echo "      ├── results/"
-echo "      └── logs/"
-
-# ── Step 3: Install dependencies ───────────────────────────
-echo ""
-echo "[3/4] Installing dependencies..."
-
-cd $REPO_DIR
+cd "$REPO_DIR"
 pip install -r requirements.txt --upgrade --quiet
-echo "      Dependencies installed ✅"
+echo "  Dependencies installed ✅"
 
-# ── Step 4: Stage 0 environment check ─────────────────────
+# ── Step 3: Stage 0 environment check ─────────────────────────────────────────
 echo ""
-echo "[4/4] Running Stage 0 environment check..."
+echo "[3/3] Running Stage 0 environment check..."
 echo ""
 
 python pipeline/stage_0_environment.py
 
-# ── Done ───────────────────────────────────────────────────
-# Stage 0 will print pass/fail and next steps
+echo ""
+echo "======================================================"
+echo " Setup complete!"
+echo " Next: bash shared/scripts/download_data.sh"
+echo "======================================================"
