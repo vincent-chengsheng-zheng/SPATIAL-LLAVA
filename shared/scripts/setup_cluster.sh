@@ -54,6 +54,7 @@ pip install -r requirements.txt --upgrade \
     --progress-bar off \
     2>&1 | grep -E "^(Collecting|Downloading|Installing|Successfully|already)" \
          | sed 's/^/  /'
+pip install flash-attn --no-cache-dir --no-build-isolation
 
 echo ""
 echo "  ✅ Dependencies installed"

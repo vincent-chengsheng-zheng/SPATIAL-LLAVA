@@ -36,4 +36,5 @@ protobuf==5.29.4
 blobfile==3.0.0
 scipy==1.17.1
 
-flash-attn
+# flash-attn requires separate install:
+# pip install flash-attn --no-cache-dir --no-build-isolation
