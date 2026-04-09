@@ -81,7 +81,7 @@ class SpatialLLaVA(nn.Module):
         print(f"[SpatialLLaVA] Loading {LLAVA_MODEL_ID} ...")
         self.backbone = LlavaForConditionalGeneration.from_pretrained(
             LLAVA_MODEL_ID,
-            torch_dtype=torch.float16,
+            torch_dtype=torch.float32,
             cache_dir=str(PATHS.weights),
             low_cpu_mem_usage=True,
         )
