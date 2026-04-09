@@ -76,6 +76,7 @@ class SpatialLLaVA(nn.Module):
         super().__init__()
         self.use_lora = use_lora
         self.hidden_dim = hidden_dim
+        self.backbone.gradient_checkpointing_enable()
 
         # ── Load LLaVA backbone ───────────────────────────────────────
         print(f"[SpatialLLaVA] Loading {LLAVA_MODEL_ID} ...")
