@@ -1,132 +1,120 @@
 """
 core/model/lora_config.py
 
-LoRA (Low-Rank Adaptation) configuration for fine-tuning LLaVA-7B.
+LoRA configuration and injection for the LLaVA language model backbone.
 
-Defines which layers to adapt and with what rank/alpha settings.
-These settings are passed directly to the PEFT library.
+What this file does:
+    1. Define LoRA hyperparameters (rank, alpha, target modules)
+    2. Apply PEFT LoRA to the LLaVA language model
+    3. Print trainable parameter summary
 
 Why LoRA:
-    LLaVA-7B has 7 billion parameters. Full fine-tuning requires
-    ~28GB VRAM (fp32) or ~14GB (fp16) just for weights, plus
-    optimizer states. With LoRA rank=16, we only train ~5M parameters
-    (~0.07% of total), fitting comfortably in V100 32GB.
+    - Full fine-tuning of LLaVA-7B requires ~28GB VRAM
+    - LoRA (rank=16) adds ~8M trainable params on top of frozen backbone
+    - With A100-80GB we can afford rank=16 with batch_size=8
+
+Target modules (LLaVA-1.5 / Vicuna / LLaMA attention):
+    q_proj, v_proj  — standard LoRA targets (query and value projections)
+    k_proj          — optional, adds more capacity
 
 Usage:
-    from core.model.lora_config import get_lora_config, LORA_TARGET_MODULES
+    from core.model.lora_config import apply_lora, LORA_CONFIG
 
-    peft_config = get_lora_config(rank=16)
+    model = apply_lora(llava_language_model)
 """
 
 from dataclasses import dataclass
-from peft import LoraConfig, TaskType
+from typing import List
+
+from peft import LoraConfig, get_peft_model, TaskType
 
 
-# ── Target modules ────────────────────────────────────────────────────────────
-
-# Attention projection layers in Vicuna-7B (LLaVA's LLM backbone).
-# We only adapt query and value projections — this is standard practice
-# and sufficient for most fine-tuning tasks.
-# Adding k_proj and o_proj increases trainable params but rarely helps much.
-LORA_TARGET_MODULES = ["q_proj", "v_proj"]
-
-
-# ── Default hyperparameters ───────────────────────────────────────────────────
+# ── Default config ────────────────────────────────────────────────────────────
 
 @dataclass
-class LoRAHyperParams:
+class LoRAConfig:
     """
-    LoRA hyperparameters with sensible defaults for LLaVA-7B on V100.
+    LoRA hyperparameters.
 
     Attributes:
-        rank        : LoRA rank r. Controls capacity of the adapter.
-                      Higher rank = more params = more expressive but slower.
-                      Typical values: 8, 16, 32. We use 16.
-        alpha       : LoRA scaling factor. Usually set to 2*rank.
-                      Controls how strongly LoRA updates influence the model.
-        dropout     : Dropout applied to LoRA layers. Helps generalization.
-        bias        : Whether to train bias terms. "none" is standard.
-        target_modules : Which attention layers to adapt.
+        r              : LoRA rank — controls capacity. 16 is a good default.
+        lora_alpha     : Scaling factor. Typically 2*r.
+        lora_dropout   : Dropout on LoRA layers.
+        target_modules : Which attention projections to adapt.
+        bias           : Whether to train bias terms ("none" = no).
     """
-    rank: int = 16
-    alpha: int = 32
-    dropout: float = 0.05
+    r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    target_modules: List[str] = None
     bias: str = "none"
-    target_modules: list = None
 
     def __post_init__(self):
         if self.target_modules is None:
-            self.target_modules = LORA_TARGET_MODULES
+            self.target_modules = ["q_proj", "v_proj", "k_proj"]
 
 
-# ── Factory function ──────────────────────────────────────────────────────────
+# Singleton — import this in step2 and step3
+LORA_CONFIG = LoRAConfig()
 
-def get_lora_config(
-    rank: int = 16,
-    alpha: int = None,
-    dropout: float = 0.05,
-    target_modules: list = None,
-) -> LoraConfig:
+
+# ── Apply LoRA ────────────────────────────────────────────────────────────────
+
+def apply_lora(language_model, config: LoRAConfig = None) -> object:
     """
-    Build and return a PEFT LoraConfig for LLaVA-7B.
+    Inject LoRA adapters into the LLaVA language model backbone.
+
+    What this does:
+        1. Build a PeftConfig targeting q/v/k projection layers
+        2. Wrap the language model with get_peft_model()
+        3. Freeze all non-LoRA parameters automatically
+        4. Print trainable param summary
 
     Args:
-        rank           : LoRA rank (default: 16)
-        alpha          : LoRA alpha scaling (default: 2 * rank)
-        dropout        : LoRA dropout rate (default: 0.05)
-        target_modules : Layers to adapt (default: ["q_proj", "v_proj"])
+        language_model : The LLM part of LlavaForConditionalGeneration
+                         (model.language_model)
+        config         : LoRAConfig instance (default: LORA_CONFIG)
 
     Returns:
-        peft.LoraConfig — pass directly to get_peft_model()
+        PEFT-wrapped language model with LoRA adapters injected
+        All backbone params are frozen; only LoRA + head params are trainable.
 
-    Example:
-        from peft import get_peft_model
-        lora_config = get_lora_config(rank=16)
-        model = get_peft_model(base_model, lora_config)
-        model.print_trainable_parameters()
-        # trainable params: 4,718,592 || all params: 7,065,440,256 || trainable%: 0.0668
+    Note:
+        After calling this, the regression head params must be added
+        separately to the optimizer — they are NOT part of the PEFT model.
     """
-    if alpha is None:
-        alpha = 2 * rank
+    if config is None:
+        config = LORA_CONFIG
 
-    if target_modules is None:
-        target_modules = LORA_TARGET_MODULES
-
-    return LoraConfig(
-        task_type=TaskType.CAUSAL_LM,
-        r=rank,
-        lora_alpha=alpha,
-        lora_dropout=dropout,
-        bias="none",
-        target_modules=target_modules,
+    peft_config = LoraConfig(
+        task_type=TaskType.FEATURE_EXTRACTION,
+        r=config.r,
+        lora_alpha=config.lora_alpha,
+        lora_dropout=config.lora_dropout,
+        target_modules=config.target_modules,
+        bias=config.bias,
+        inference_mode=False,
     )
 
+    lora_model = get_peft_model(language_model, peft_config)
+    _print_trainable_summary(lora_model, label="LLaVA backbone (LoRA)")
+    return lora_model
 
-def get_lora_config_from_yaml(config: dict) -> LoraConfig:
-    """
-    Build LoraConfig from a config dict loaded from YAML.
 
-    Expects the YAML to have a "lora" section:
-        lora:
-            rank: 16
-            alpha: 32
-            dropout: 0.05
+def print_param_summary(model, label: str = "Model"):
+    """Print total vs trainable parameter counts."""
+    _print_trainable_summary(model, label)
 
-    Args:
-        config : Full training config dict (from config_coursework.yaml)
 
-    Returns:
-        peft.LoraConfig
-
-    Example:
-        import yaml
-        with open("config_coursework.yaml") as f:
-            config = yaml.safe_load(f)
-        lora_config = get_lora_config_from_yaml(config)
-    """
-    lora_cfg = config.get("lora", {})
-    return get_lora_config(
-        rank=lora_cfg.get("rank", 16),
-        alpha=lora_cfg.get("alpha", None),
-        dropout=lora_cfg.get("dropout", 0.05),
+def _print_trainable_summary(model, label: str):
+    total = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    frozen = total - trainable
+    print(
+        f"[LoRA] {label}\n"
+        f"  Total params     : {total:,}\n"
+        f"  Trainable params : {trainable:,} ({100*trainable/total:.2f}%)\n"
+        f"  Frozen params    : {frozen:,}"
     )
+
+    

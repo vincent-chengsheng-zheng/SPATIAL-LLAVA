@@ -1,113 +1,118 @@
 """
 core/loss/spatial_loss.py
 
-Spatial regression loss for normalized bounding boxes.
-Combines IoU loss + L1 regression for stable bbox training.
+Loss function for bounding box regression.
 
-All boxes are in [x_center, y_center, width, height] normalized to [0, 1].
+What this file provides:
+    SpatialLoss — weighted combination of SmoothL1 + IoU loss
+
+Why two losses:
+    SmoothL1  : coordinate-level regression, robust to outliers
+    IoU loss  : shape-aware, directly optimizes the evaluation metric
+                (IoU loss = 1 - IoU, lower = better)
+
+Combined loss:
+    loss = w_smooth * SmoothL1(pred, target) + w_iou * (1 - mean_IoU)
 
 Usage:
-    from core.loss.spatial_loss import spatial_loss
+    from core.loss.spatial_loss import SpatialLoss
 
-    loss = spatial_loss(pred_bbox, target_bbox)  # scalar
+    criterion = SpatialLoss(w_smooth=1.0, w_iou=1.0)
+    loss = criterion(pred, target)   # scalar tensor
 """
 
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 
-def _xywh_to_xyxy(boxes: Tensor) -> Tensor:
-    """Convert [x_c, y_c, w, h] to [x1, y1, x2, y2]."""
-    x_c, y_c, w, h = boxes.unbind(dim=-1)
-    x1 = x_c - w / 2
-    y1 = y_c - h / 2
-    x2 = x_c + w / 2
-    y2 = y_c + h / 2
-    return torch.stack([x1, y1, x2, y2], dim=-1)
-
-
-def iou(pred: Tensor, target: Tensor, eps: float = 1e-7) -> Tensor:
+class SpatialLoss(nn.Module):
     """
-    Batch IoU for normalized center+size boxes.
+    Weighted SmoothL1 + IoU loss for normalized bbox regression.
 
     Args:
-        pred   : Tensor (B, 4) — predicted [x_c, y_c, w, h]
-        target : Tensor (B, 4) — ground truth [x_c, y_c, w, h]
-        eps    : Small value to avoid division by zero
+        w_smooth : Weight for SmoothL1 term (default 1.0)
+        w_iou    : Weight for IoU loss term (default 1.0)
+        beta     : SmoothL1 transition point (default 1.0)
 
-    Returns:
-        Tensor (B,) — IoU score per sample in [0, 1]
+    Input:
+        pred   : Tensor(B, 4) — predicted [xc, yc, w, h] in (0, 1)
+        target : Tensor(B, 4) — ground truth [xc, yc, w, h] in (0, 1)
+
+    Output:
+        Scalar tensor — combined loss value
     """
-    pred_xyxy = _xywh_to_xyxy(pred)
-    target_xyxy = _xywh_to_xyxy(target)
 
-    x1 = torch.max(pred_xyxy[..., 0], target_xyxy[..., 0])
-    y1 = torch.max(pred_xyxy[..., 1], target_xyxy[..., 1])
-    x2 = torch.min(pred_xyxy[..., 2], target_xyxy[..., 2])
-    y2 = torch.min(pred_xyxy[..., 3], target_xyxy[..., 3])
+    def __init__(
+        self,
+        w_smooth: float = 1.0,
+        w_iou: float = 1.0,
+        beta: float = 1.0,
+    ):
+        super().__init__()
+        self.w_smooth = w_smooth
+        self.w_iou = w_iou
+        self.beta = beta
 
-    inter_w = (x2 - x1).clamp(min=0)
-    inter_h = (y2 - y1).clamp(min=0)
+    def forward(self, pred: Tensor, target: Tensor) -> Tensor:
+        """
+        Compute combined loss.
+
+        Args:
+            pred   : Tensor(B, 4)
+            target : Tensor(B, 4)
+
+        Returns:
+            Scalar tensor
+        """
+        pred = pred.float()
+        target = target.float()
+
+        # ── SmoothL1 ──────────────────────────────────────────────────
+        smooth_loss = F.smooth_l1_loss(pred, target, beta=self.beta)
+
+        # ── IoU loss ──────────────────────────────────────────────────
+        iou_val = _batch_iou(pred, target)         # (B,)
+        iou_loss = (1.0 - iou_val).mean()
+
+        return self.w_smooth * smooth_loss + self.w_iou * iou_loss
+
+    def __repr__(self):
+        return (
+            f"SpatialLoss(w_smooth={self.w_smooth}, "
+            f"w_iou={self.w_iou}, beta={self.beta})"
+        )
+
+
+# ── Internal IoU (avoids circular import with metrics.py) ─────────────────────
+
+def _batch_iou(pred: Tensor, target: Tensor) -> Tensor:
+    """
+    Compute per-sample IoU for a batch. [xc, yc, w, h] format.
+    Kept here to avoid circular import with core.utils.metrics.
+    """
+    pred_x1 = pred[:, 0] - pred[:, 2] / 2
+    pred_y1 = pred[:, 1] - pred[:, 3] / 2
+    pred_x2 = pred[:, 0] + pred[:, 2] / 2
+    pred_y2 = pred[:, 1] + pred[:, 3] / 2
+
+    tgt_x1 = target[:, 0] - target[:, 2] / 2
+    tgt_y1 = target[:, 1] - target[:, 3] / 2
+    tgt_x2 = target[:, 0] + target[:, 2] / 2
+    tgt_y2 = target[:, 1] + target[:, 3] / 2
+
+    inter_x1 = torch.max(pred_x1, tgt_x1)
+    inter_y1 = torch.max(pred_y1, tgt_y1)
+    inter_x2 = torch.min(pred_x2, tgt_x2)
+    inter_y2 = torch.min(pred_y2, tgt_y2)
+
+    inter_w = (inter_x2 - inter_x1).clamp(min=0)
+    inter_h = (inter_y2 - inter_y1).clamp(min=0)
     inter_area = inter_w * inter_h
 
-    pred_area = (
-        (pred_xyxy[..., 2] - pred_xyxy[..., 0]).clamp(min=0)
-        * (pred_xyxy[..., 3] - pred_xyxy[..., 1]).clamp(min=0)
-    )
-    target_area = (
-        (target_xyxy[..., 2] - target_xyxy[..., 0]).clamp(min=0)
-        * (target_xyxy[..., 3] - target_xyxy[..., 1]).clamp(min=0)
-    )
-    union = pred_area + target_area - inter_area + eps
+    pred_area = pred[:, 2] * pred[:, 3]
+    tgt_area = target[:, 2] * target[:, 3]
+    union_area = pred_area + tgt_area - inter_area
 
-    return inter_area / union
-
-
-def spatial_loss(
-    pred: Tensor,
-    target: Tensor,
-    iou_weight: float = 1.0,
-    l1_weight: float = 1.0,
-    eps: float = 1e-7,
-) -> Tensor:
-    """
-    Combined IoU + L1 loss for normalized bounding boxes.
-
-    Args:
-        pred       : Tensor (B, 4) — predicted [x_c, y_c, w, h]
-        target     : Tensor (B, 4) — ground truth [x_c, y_c, w, h]
-        iou_weight : Weight for IoU loss term (default: 1.0)
-        l1_weight  : Weight for L1 loss term (default: 1.0)
-        eps        : Small value to avoid division by zero
-
-    Returns:
-        Scalar tensor — mean loss over batch
-    """
-    assert pred.ndim == 2 and pred.size(1) == 4, "box tensors must be (B,4)"
-    assert target.ndim == 2 and target.size(1) == 4, "box tensors must be (B,4)"
-    assert pred.shape == target.shape, "pred and target must match shape"
-
-    iou_score = iou(pred, target, eps=eps)
-    iou_loss = 1.0 - iou_score
-
-    l1 = torch.nn.functional.l1_loss(pred, target, reduction="none").mean(dim=1)
-
-    loss = iou_weight * iou_loss + l1_weight * l1
-    return loss.mean()
-
-
-def smooth_l1_loss(pred: Tensor, target: Tensor, beta: float = 1.0) -> Tensor:
-    """
-    Smooth L1 loss for bounding box regression.
-
-    Args:
-        pred   : Tensor (B, 4)
-        target : Tensor (B, 4)
-        beta   : Threshold between L1 and L2 behavior (default: 1.0)
-
-    Returns:
-        Scalar tensor — mean smooth L1 loss
-    """
-    return torch.nn.functional.smooth_l1_loss(
-        pred, target, reduction="mean", beta=beta
-    )
+    return inter_area / union_area.clamp(min=1e-6)

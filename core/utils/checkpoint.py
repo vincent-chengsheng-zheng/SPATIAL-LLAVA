@@ -1,156 +1,251 @@
 """
 core/utils/checkpoint.py
 
-Utilities for saving and loading training checkpoints.
-Supports resuming training from the last saved state.
+Checkpoint save / load utilities for SpatialLLaVA training.
+
+What this file provides:
+    save_checkpoint()  — save model + optimizer + epoch + metrics
+    load_checkpoint()  — restore from checkpoint (resume or eval)
+    CheckpointManager  — tracks best val IoU, saves best + latest
+
+Checkpoint format (one .pth file):
+    {
+        "epoch"        : int
+        "model_state"  : state_dict (LoRA + head weights only)
+        "optim_state"  : optimizer state_dict
+        "scheduler_state": scheduler state_dict
+        "metrics"      : dict  (val_iou, val_loss, etc.)
+        "config"       : dict  (hyperparams for reproducibility)
+    }
+
+Why save LoRA + head only (not full backbone):
+    - Full LLaVA-7B weights = ~14GB per checkpoint
+    - LoRA adapters + head = ~50MB
+    - We reload the frozen backbone from HuggingFace at inference time
 
 Usage:
-    from core.utils.checkpoint import save_checkpoint, load_checkpoint
+    from core.utils.checkpoint import CheckpointManager
 
-    # Save
-    save_checkpoint(
-        model=model,
-        optimizer=optimizer,
-        epoch=2,
-        step=1500,
-        best_iou=0.63,
-        path="~/SharedFolder/checkpoints/coursework/step_1500.pth"
-    )
-
-    # Load
-    epoch, step, best_iou = load_checkpoint(
-        model=model,
-        optimizer=optimizer,
-        path="~/SharedFolder/checkpoints/coursework/step_1500.pth"
-    )
+    ckpt_mgr = CheckpointManager(ckpt_dir=PATHS.ckpt_main)
+    ckpt_mgr.save(model, optimizer, scheduler, epoch=1, metrics={"val_iou": 0.45})
+    ckpt_mgr.load_best(model, optimizer, scheduler)
 """
 
+import json
 import os
-import torch
-import torch.nn as nn
-from torch.optim import Optimizer
+from pathlib import Path
+from typing import Dict, Optional
 
+import torch
+
+
+# ── Low-level save / load ─────────────────────────────────────────────────────
 
 def save_checkpoint(
-    model: nn.Module,
-    optimizer: Optimizer,
-    epoch: int,
-    step: int,
-    best_iou: float,
     path: str,
+    model,
+    optimizer,
+    scheduler,
+    epoch: int,
+    metrics: Dict,
+    config: Dict = None,
 ) -> None:
     """
-    Save training state to disk.
+    Save a training checkpoint.
 
-    Saves model weights, optimizer state, and training progress.
-    Creates parent directories automatically if they don't exist.
+    What is saved:
+        - Trainable model params only (LoRA adapters + regression head)
+        - Optimizer and scheduler states
+        - Epoch number and metrics dict
+        - Config dict for reproducibility
 
     Args:
-        model     : The model being trained
-        optimizer : The optimizer being used
-        epoch     : Current epoch number (0-indexed)
-        step      : Current global step number
-        best_iou  : Best validation IoU seen so far
-        path      : Full path to save the checkpoint file (.pth)
-
-    Example:
-        save_checkpoint(model, optimizer, epoch=2, step=1500,
-                       best_iou=0.63, path="checkpoints/step_1500.pth")
+        path      : Full file path to save (e.g. checkpoints/main/best.pth)
+        model     : SpatialLLaVA instance
+        optimizer : AdamW optimizer
+        scheduler : LR scheduler
+        epoch     : Current epoch (0-indexed)
+        metrics   : Dict of metric values (val_iou, val_loss, ...)
+        config    : Hyperparams dict (optional, for reproducibility)
     """
-    path = os.path.expanduser(path)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # Save only trainable params to keep checkpoint small (~50MB vs ~14GB)
+    trainable_state = {
+        k: v for k, v in model.state_dict().items()
+        if any(k.startswith(prefix) for prefix in ["head.", "backbone.language_model.base_model"])
+        or "lora" in k.lower()
+    }
 
-    torch.save({
+    ckpt = {
         "epoch": epoch,
-        "step": step,
-        "best_iou": best_iou,
-        "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-    }, path)
+        "model_state": trainable_state,
+        "optim_state": optimizer.state_dict(),
+        "scheduler_state": scheduler.state_dict() if scheduler else None,
+        "metrics": metrics,
+        "config": config or {},
+    }
 
-    print(f"  ✓ Checkpoint saved → {path}")
-    print(f"    epoch={epoch}, step={step}, best_iou={best_iou:.4f}")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save(ckpt, path)
+    size_mb = os.path.getsize(path) / 1e6
+    print(f"  [ckpt] Saved → {path}  ({size_mb:.1f} MB)")
 
 
 def load_checkpoint(
-    model: nn.Module,
-    optimizer: Optimizer,
     path: str,
-) -> tuple:
+    model,
+    optimizer=None,
+    scheduler=None,
+    device: str = "cuda",
+) -> Dict:
     """
-    Load training state from disk and resume training.
-
-    If the checkpoint file does not exist, returns (0, 0, 0.0)
-    so training starts from scratch without raising an error.
+    Load a checkpoint and restore model (+ optionally optimizer/scheduler).
 
     Args:
-        model     : The model to load weights into
-        optimizer : The optimizer to restore state into
-        path      : Full path to the checkpoint file (.pth)
+        path      : Path to .pth checkpoint file
+        model     : SpatialLLaVA instance (must be initialized first)
+        optimizer : Optional — if provided, restores optimizer state
+        scheduler : Optional — if provided, restores scheduler state
+        device    : Device to map tensors to
 
     Returns:
-        Tuple of (epoch, step, best_iou) — all ints/floats, not tensors.
-        Returns (0, 0, 0.0) if checkpoint does not exist.
-
-    Example:
-        epoch, step, best_iou = load_checkpoint(model, optimizer, path)
-        print(f"Resuming from epoch {epoch}, step {step}")
+        Dict with keys: epoch, metrics, config
     """
-    path = os.path.expanduser(path)
-
     if not os.path.exists(path):
-        print(f"  ℹ No checkpoint found at {path}, starting from scratch.")
-        return 0, 0, 0.0
+        raise FileNotFoundError(f"[load_checkpoint] Not found: {path}")
 
-    checkpoint = torch.load(path, map_location="cpu")
+    ckpt = torch.load(path, map_location=device)
 
-    model.load_state_dict(checkpoint["model_state_dict"])
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    missing, unexpected = model.load_state_dict(
+        ckpt["model_state"], strict=False
+    )
+    if missing:
+        print(f"  [ckpt] Missing keys ({len(missing)}): {missing[:3]} ...")
+    if unexpected:
+        print(f"  [ckpt] Unexpected keys ({len(unexpected)}): {unexpected[:3]} ...")
 
-    epoch = checkpoint["epoch"]
-    step = checkpoint["step"]
-    best_iou = checkpoint["best_iou"]
+    if optimizer and ckpt.get("optim_state"):
+        optimizer.load_state_dict(ckpt["optim_state"])
 
-    print(f"  ✓ Checkpoint loaded ← {path}")
-    print(f"    epoch={epoch}, step={step}, best_iou={best_iou:.4f}")
+    if scheduler and ckpt.get("scheduler_state"):
+        scheduler.load_state_dict(ckpt["scheduler_state"])
 
-    return epoch, step, best_iou
+    epoch = ckpt.get("epoch", 0)
+    metrics = ckpt.get("metrics", {})
+    print(
+        f"  [ckpt] Loaded epoch={epoch}  "
+        f"val_iou={metrics.get('val_iou', 'N/A')}"
+    )
+    return {"epoch": epoch, "metrics": metrics, "config": ckpt.get("config", {})}
 
 
-def save_best(
-    model: nn.Module,
-    optimizer: Optimizer,
-    epoch: int,
-    step: int,
-    current_iou: float,
-    best_iou: float,
-    output_dir: str,
-) -> float:
+# ── CheckpointManager ─────────────────────────────────────────────────────────
+
+class CheckpointManager:
     """
-    Save checkpoint only if current_iou improves over best_iou.
-    Always saves to 'best.pth' in output_dir.
+    Manages best + latest checkpoints during training.
+
+    Saves two files:
+        <ckpt_dir>/best.pth    — best val IoU so far
+        <ckpt_dir>/latest.pth  — most recent epoch
+
+    Also saves a history JSON for plotting training curves:
+        <ckpt_dir>/history.json
 
     Args:
-        model       : The model being trained
-        optimizer   : The optimizer being used
-        epoch       : Current epoch number
-        step        : Current global step
-        current_iou : IoU from the latest validation run
-        best_iou    : Best IoU seen so far
-        output_dir  : Directory to save best.pth into
-
-    Returns:
-        Updated best_iou (either current_iou if improved, or unchanged best_iou)
-
-    Example:
-        best_iou = save_best(model, optimizer, epoch, step,
-                             current_iou=0.65, best_iou=0.63,
-                             output_dir="~/SharedFolder/checkpoints/coursework")
+        ckpt_dir : Path to checkpoint directory (e.g. PATHS.ckpt_main)
+        config   : Hyperparams dict (saved inside each checkpoint)
     """
-    if current_iou > best_iou:
-        best_path = os.path.join(os.path.expanduser(output_dir), "best.pth")
-        save_checkpoint(model, optimizer, epoch, step, current_iou, best_path)
-        print(f"  🏆 New best IoU: {best_iou:.4f} → {current_iou:.4f}")
-        return current_iou
 
-    return best_iou
+    def __init__(self, ckpt_dir, config: Dict = None):
+        self.ckpt_dir = Path(ckpt_dir)
+        self.ckpt_dir.mkdir(parents=True, exist_ok=True)
+        self.config = config or {}
+        self.best_iou: float = -1.0
+        self.history = []
+
+    @property
+    def best_path(self) -> str:
+        return str(self.ckpt_dir / "best.pth")
+
+    @property
+    def latest_path(self) -> str:
+        return str(self.ckpt_dir / "latest.pth")
+
+    def save(
+        self,
+        model,
+        optimizer,
+        scheduler,
+        epoch: int,
+        metrics: Dict,
+    ) -> bool:
+        """
+        Save latest checkpoint. If val_iou improved, also save best.
+
+        Args:
+            model, optimizer, scheduler : as in save_checkpoint()
+            epoch   : current epoch
+            metrics : must contain "val_iou" key
+
+        Returns:
+            True if this is a new best checkpoint
+        """
+        val_iou = metrics.get("val_iou", 0.0)
+
+        # Always save latest
+        save_checkpoint(
+            self.latest_path, model, optimizer, scheduler,
+            epoch, metrics, self.config
+        )
+
+        # Save best if improved
+        is_best = val_iou > self.best_iou
+        if is_best:
+            self.best_iou = val_iou
+            save_checkpoint(
+                self.best_path, model, optimizer, scheduler,
+                epoch, metrics, self.config
+            )
+            print(f"  [ckpt] ★ New best IoU: {val_iou:.4f}")
+
+        # Append to history
+        self.history.append({"epoch": epoch, **metrics})
+        self._save_history()
+
+        return is_best
+
+    def load_best(
+        self,
+        model,
+        optimizer=None,
+        scheduler=None,
+        device: str = "cuda",
+    ) -> Optional[Dict]:
+        """Load best.pth if it exists."""
+        if not os.path.exists(self.best_path):
+            print(f"  [ckpt] No best checkpoint found at {self.best_path}")
+            return None
+        return load_checkpoint(
+            self.best_path, model, optimizer, scheduler, device
+        )
+
+    def load_latest(
+        self,
+        model,
+        optimizer=None,
+        scheduler=None,
+        device: str = "cuda",
+    ) -> Optional[Dict]:
+        """Load latest.pth for resuming training."""
+        if not os.path.exists(self.latest_path):
+            print(f"  [ckpt] No latest checkpoint found at {self.latest_path}")
+            return None
+        return load_checkpoint(
+            self.latest_path, model, optimizer, scheduler, device
+        )
+
+    def _save_history(self):
+        history_path = self.ckpt_dir / "history.json"
+        with open(history_path, "w") as f:
+            json.dump(self.history, f, indent=2)
+            
