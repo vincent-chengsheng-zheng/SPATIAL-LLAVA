@@ -85,6 +85,7 @@ class SpatialLLaVA(nn.Module):
             cache_dir=str(PATHS.weights),
             low_cpu_mem_usage=True,
         )
+        self.backbone.gradient_checkpointing_enable()
 
         if use_lora:
             # ── LoRA mode: inject adapters, freeze everything else ────
