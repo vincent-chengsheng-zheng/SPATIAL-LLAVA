@@ -28,15 +28,6 @@ from core.loss.spatial_loss import SpatialLoss
 
 N_STEPS = 10  # number of steps to profile
 
-def cuda_time(func):
-    """Run func, synchronize CUDA, return elapsed ms."""
-    torch.cuda.synchronize()
-    t0 = time.perf_counter()
-    result = func()
-    torch.cuda.synchronize()
-    elapsed = (time.perf_counter() - t0) * 1000
-    return result, elapsed
-
 # ── Load ──────────────────────────────────────────────────────────────────────
 print("Loading model...")
 model, processor = load_model(use_lora=True, device="cuda")
@@ -78,20 +69,32 @@ for step in range(N_STEPS):
     optimizer.zero_grad()
 
     # 2. Forward
-    _, t_forward = cuda_time(
-        lambda: model(input_ids, attention_mask, pixel_values)
-    )
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
     preds = model(input_ids, attention_mask, pixel_values)
+    torch.cuda.synchronize()
+    t_forward = (time.perf_counter() - t0) * 1000
 
     # 3. Loss
-    _, t_loss = cuda_time(lambda: criterion(preds, targets))
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
     loss = criterion(preds, targets)
+    torch.cuda.synchronize()
+    t_loss = (time.perf_counter() - t0) * 1000
 
     # 4. Backward
-    _, t_backward = cuda_time(lambda: loss.backward())
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    loss.backward()
+    torch.cuda.synchronize()
+    t_backward = (time.perf_counter() - t0) * 1000
 
     # 5. Optimizer
-    _, t_optim = cuda_time(lambda: optimizer.step())
+    torch.cuda.synchronize()
+    t0 = time.perf_counter()
+    optimizer.step()
+    torch.cuda.synchronize()
+    t_optim = (time.perf_counter() - t0) * 1000
 
     torch.cuda.synchronize()
     t_total = (time.perf_counter() - t_total_start) * 1000
@@ -114,13 +117,13 @@ for step in range(N_STEPS):
     )
 
 # ── Summary ───────────────────────────────────────────────────────────────────
-print("-" * 60)
-print("AVERAGE (excluding step 0 warmup):")
+print("-" * 62)
 
-def avg(lst): return sum(lst[1:]) / len(lst[1:])
+def avg(lst):
+    return sum(lst[1:]) / max(len(lst[1:]), 1)
 
 print(
-    f"{'':>4} "
+    f"{'avg':>4} "
     f"{avg(times['data']):>7.0f}ms "
     f"{avg(times['forward']):>9.0f}ms "
     f"{avg(times['loss']):>7.0f}ms "
@@ -133,5 +136,5 @@ bottleneck = max(
     ["data", "forward", "loss", "backward", "optim"],
     key=lambda k: avg(times[k])
 )
-print(f"\nBottleneck: {bottleneck} ({avg(times[bottleneck]):.0f}ms / step)")
-print(f"Total avg:  {avg(times['total']):.0f}ms = {avg(times['total'])/1000:.2f}s/step")
+print(f"\nBottleneck : {bottleneck} ({avg(times[bottleneck]):.0f}ms/step)")
+print(f"Total avg  : {avg(times['total'])/1000:.2f}s/step")
