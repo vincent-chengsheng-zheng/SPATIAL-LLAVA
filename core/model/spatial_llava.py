@@ -89,13 +89,13 @@ class SpatialLLaVA(nn.Module):
         if use_lora:
             # ── LoRA mode: inject adapters, freeze everything else ────
             print("[SpatialLLaVA] Applying LoRA to language model ...")
-            self.backbone.language_model = apply_lora(
-                self.backbone.language_model
+            self.backbone.model.language_model = apply_lora(
+                self.backbone.model.language_model
             )
             # Freeze vision tower and projector (only LM gets LoRA)
-            for param in self.backbone.vision_tower.parameters():
+            for param in self.backbone.model.vision_tower.parameters():
                 param.requires_grad = False
-            for param in self.backbone.multi_modal_projector.parameters():
+            for param in self.backbone.model.multi_modal_projector.parameters():
                 param.requires_grad = False
         else:
             # ── Ablation mode: freeze entire backbone ─────────────────
