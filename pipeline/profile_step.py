@@ -29,8 +29,11 @@ from core.loss.spatial_loss import SpatialLoss
 N_STEPS = 10  # number of steps to profile
 
 # ── Load ──────────────────────────────────────────────────────────────────────
-print("Loading model...")
-model, processor = load_model(use_lora=True, device="cuda")
+if "model" not in dir():
+    print("Loading model...")
+    model, processor = load_model(use_lora=True, device="cuda")
+else:
+    print("Using pre-loaded model.")
 train_loader, _ = make_loaders(
     processor, batch_size=4, num_workers=0,
     max_length=600, max_samples=60
