@@ -1,0 +1,18 @@
+{
+  "format_version": "v3_image_path",
+  "total_samples": 48190,
+  "split_sizes": {
+    "train": 42404,
+    "val": 3811,
+    "test": 1975
+  },
+  "max_samples_cap": null,
+  "refcoco_dataset": "jxu124/refcoco",
+  "seed": 42,
+  "checksums": {
+    "train": "43e4ad9251f0e7703886fecaf6aa63f8",
+    "val": "29b08b30113886c0fef53ff09553eb9d",
+    "test": "498105a391e2de34e8667023d6cc6c8e"
+  },
+  "note": "image_path is absolute path to COCO jpg. Image loading and transforms happen in RefCOCODataset.__getitem__"
+}
