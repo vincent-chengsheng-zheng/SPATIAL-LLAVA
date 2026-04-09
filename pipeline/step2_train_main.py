@@ -49,6 +49,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
+from tqdm import tqdm
 
 import torch
 from torch.optim import AdamW
@@ -143,7 +144,7 @@ def train_one_epoch(
     all_targets: List[torch.Tensor] = []
     t0 = time.time()
 
-    for step, batch in enumerate(loader):
+    for step, batch in enumerate(tqdm(loader, desc=f"Epoch {epoch+1}")):
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         pixel_values = batch["pixel_values"].to(device)
@@ -206,7 +207,7 @@ def validate(
     all_texts: List[str] = []
 
     with torch.no_grad():
-        for batch in loader:
+        for batch in tqdm(loader, desc="Val", leave=False):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             pixel_values = batch["pixel_values"].to(device)
