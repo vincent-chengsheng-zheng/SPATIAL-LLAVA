@@ -160,7 +160,6 @@ cd "$REPO_DIR"
 python pipeline/stage_1_data_preparation.py \
     --output_dir "$DATA_DIR" \
     --coco_dir   "$COCO_DIR" \
-    --weights_dir "$WEIGHTS_DIR" \
     --skip_coco_download \
     $FORCE_FLAG \
     2>&1 | tee "$LOG_FILE"
