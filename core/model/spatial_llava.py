@@ -84,6 +84,7 @@ class SpatialLLaVA(nn.Module):
             torch_dtype=torch.bfloat16,
             cache_dir=str(PATHS.weights),
             low_cpu_mem_usage=True,
+            attn_implementation="flash_attention_2",
         )
         self.backbone.gradient_checkpointing_enable()
 
