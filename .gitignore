@@ -1,10 +1,8 @@
 # =============================================================================
 # Spatial-LLaVA .gitignore
-# Optimized for ML/DL projects with large datasets and model checkpoints
 # =============================================================================
 
-# ── LARGE MODEL/DATA FILES (never commit these) ──────────────────────────────
-# Model weights and checkpoints
+# ── LARGE MODEL/DATA FILES ───────────────────────────────────────────────────
 *.pth
 *.pt
 *.safetensors
@@ -12,114 +10,77 @@
 *.onnx
 *.h5
 
-# Serialized data
-*.pkl
-*.pickle
+# ── DATA ─────────────────────────────────────────────────────────────────────
+# Keep pkl (small, important for reproducibility)
+data/coco/
+data/*.zip
 
-# ── GENERATED RESULTS & OUTPUTS (regenerated from training/inference) ────────
-# Keep directories but ignore contents
-results/*
-!results/.gitkeep
-!results/coursework/
-!results/coursework/.gitkeep
-!results/enterprise/
-!results/enterprise/.gitkeep
+# ── WEIGHTS / HF CACHE ───────────────────────────────────────────────────────
+weights/
+.cache/
+hf_cache/
+transformers_cache/
 
-# Generated visualization files
-*.png
-*.jpg
-*.jpeg
-viz_test.png
+# ── CHECKPOINTS (large, not tracked) ─────────────────────────────────────────
+checkpoints/
 
-# Training logs and metrics
-logs/*
-!logs/.gitkeep
+# ── RESULTS (tracked, important) ─────────────────────────────────────────────
+# Track metrics and predictions
+# Ignore example PNGs (too many, regenerable)
+results/baseline/examples/
+results/main/examples/
+results/ablation/examples/
+results/coursework/examples/
+results/enterprise/examples/
+
+# ── LOGS (not tracked) ───────────────────────────────────────────────────────
+logs/
 *.log
 nohup.out
 
-# ── CACHE DIRECTORIES (downloaded/generated at runtime) ──────────────────────
-# HuggingFace and other ML caches
-.cache/
-hf_cache/
-weights/
-transformers_cache/
-
-# Python caches
+# ── PYTHON ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# Testing and coverage
+# ── TESTING ──────────────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
 htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Jupyter
+# ── JUPYTER ──────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 
-# ── DATA DIRECTORIES (keep structure, ignore contents) ───────────────────────
-# Raw datasets (downloaded at runtime)
-data/*
-!data/.gitkeep
-
-# COCO images (13GB+)
-data/coco/
-data/*.zip
-
-# ── CHECKPOINTS (keep structure, ignore large files) ─────────────────────────
-checkpoints/*
-!checkpoints/.gitkeep
-!checkpoints/coursework/
-!checkpoints/coursework/.gitkeep
-!checkpoints/enterprise/
-!checkpoints/enterprise/.gitkeep
-
-# Specific checkpoint patterns (redundant but explicit)
-checkpoints/**/*.pth
-checkpoints/**/*.pt
-checkpoints/**/*.safetensors
-
-# ── DEVELOPMENT ENVIRONMENT ──────────────────────────────────────────────────
-# Virtual environments
+# ── VIRTUAL ENVIRONMENTS ─────────────────────────────────────────────────────
 .venv/
 venv/
 env/
 ENV/
 
-# Package management
-*.egg-info/
-dist/
-build/
-.eggs/
-
-# Environment files
+# ── ENVIRONMENT FILES ────────────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
 
-# ── IDE & EDITOR FILES ───────────────────────────────────────────────────────
-# VS Code
+# ── IDE ──────────────────────────────────────────────────────────────────────
 .vscode/
 *.code-workspace
-
-# PyCharm/IntelliJ
 .idea/
-
-# Sublime Text
 *.sublime-project
 *.sublime-workspace
-
-# Vim
 *.swp
 *.swo
 *~
 
-# ── OPERATING SYSTEM FILES ───────────────────────────────────────────────────
-# macOS
+# ── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
 ._*
@@ -127,23 +88,13 @@ build/
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# Windows
-Thumbs.db
-ehthumbs.db
 Desktop.ini
 
-# Linux
-*~
-
-# ── TEMPORARY & BACKUP FILES ─────────────────────────────────────────────────
-# Backup files
+# ── TEMP / BACKUP ────────────────────────────────────────────────────────────
 *.bak
 *.backup
 *.tmp
 *.temp
-
-# Archive files (usually temporary)
 *.tar.gz
 *.zip
 *.rar
@@ -151,22 +102,9 @@ Desktop.ini
 
 # ── DOCKER ───────────────────────────────────────────────────────────────────
 .dockerignore
-
-# ── CI/CD & DEPLOYMENT ───────────────────────────────────────────────────────
-# Docker volumes and containers
 docker-volumes/
 
-# Build artifacts
-target/
-*.war
-*.jar
-
-# ── MISCELLANEOUS ────────────────────────────────────────────────────────────
-# Personal notes (if any)
+# ── MISC ─────────────────────────────────────────────────────────────────────
 For_Myself.md
-
-# Node.js (if any frontend components)
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+
