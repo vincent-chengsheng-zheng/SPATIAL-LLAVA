@@ -18,6 +18,8 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
+from core.paths import PATHS  # noqa: E402
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,10 +66,10 @@ check(
 
 section("Package Versions")
 
-# Find requirements.txt relative to this script
-script_dir = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.dirname(script_dir)
-req_path = os.path.join(repo_root, "requirements.txt")
+req_path = str(PATHS.weights.parent / "requirements.txt")
+# fallback: find requirements.txt at repo root
+req_path = os.path.join(str(PATHS.weights.parent.parent), "requirements.txt")
+req_path = os.path.join(_repo_root, "requirements.txt")
 
 
 def parse_requirements(path: str) -> dict:
@@ -95,14 +97,6 @@ def get_installed_version(package_name: str) -> str:
         return None
 
 
-# Package name mappings (import name → pip name)
-PACKAGE_MAP = {
-    "PIL": "pillow",
-    "cv2": "opencv-python-headless",
-    "yaml": "pyyaml",
-    "sklearn": "scikit-learn",
-}
-
 required = parse_requirements(req_path)
 
 if not required:
@@ -113,15 +107,13 @@ else:
     for pip_name, req_version in required.items():
         installed = get_installed_version(pip_name)
         if installed is None:
-            # Try common alternatives
             installed = get_installed_version(pip_name.replace("-", "_"))
         if installed is None:
             print(f"{FAIL} {pip_name}: NOT INSTALLED (required {req_version})")
-            print("      → Run: bash shared/scripts/setup_cluster.sh")
+            print("      → Run: source shared/scripts/setup_cluster.sh")
             critical_failures.append(f"{pip_name} not installed")
         elif installed != req_version:
             print(f"{WARN} {pip_name}: {installed} (required {req_version})")
-            print("      → Run: bash shared/scripts/setup_cluster.sh")
             warnings.append(
                 f"{pip_name} version mismatch: {installed} != {req_version}")
         else:
@@ -212,94 +204,62 @@ except Exception as e:
     critical_failures.append("GPU check error")
 
 
-# ── 5. Environment variables ──────────────────────────────────────────────────
+# ── 5. Repo directory structure ───────────────────────────────────────────────
 
-section("Environment Variables")
+section("Repo Directory Structure")
 
-env_vars = {
-    "HF_HOME": "Run: bash shared/scripts/setup_cluster.sh",
-    "SPATIAL_DATA": "Run: bash shared/scripts/setup_cluster.sh",
-    "SPATIAL_CKPT": "Run: bash shared/scripts/setup_cluster.sh",
-    "SPATIAL_RESULTS": "Run: bash shared/scripts/setup_cluster.sh",
-    "SPATIAL_LOGS": "Run: bash shared/scripts/setup_cluster.sh",
+print(f"      Repo root: {_repo_root}")
+
+required_dirs = {
+    PATHS.data:              "data/             (pkl files — git tracked)",
+    PATHS.coco_train:        "data/coco/train2014/ (COCO images — gitignored)",
+    PATHS.weights:           "weights/          (HF cache — gitignored)",
+    PATHS.ckpt_main:         "checkpoints/main/ (gitignored)",
+    PATHS.ckpt_ablation:     "checkpoints/ablation/ (gitignored)",
+    PATHS.results_baseline:  "results/baseline/ (git tracked)",
+    PATHS.results_main:      "results/main/     (git tracked)",
+    PATHS.results_ablation:  "results/ablation/ (git tracked)",
+    PATHS.logs:              "logs/             (git tracked)",
 }
 
-for var, fix in env_vars.items():
-    value = os.environ.get(var)
+for path, label in required_dirs.items():
     check(
-        label=f"{var} = {value if value else 'NOT SET'}",
-        condition=value is not None,
-        fail_msg=fix,
+        label=label,
+        condition=path.exists(),
+        fail_msg=f"Run: source shared/scripts/setup_cluster.sh",
     )
 
+# Check pkl files exist
+for split in ["train", "val", "test"]:
+    pkl = PATHS.pkl(split)
+    check(
+        label=f"data/refcoco_{split}.pkl",
+        condition=pkl.exists() and pkl.stat().st_size > 100,
+        fail_msg="Run: bash shared/scripts/download_data.sh",
+    )
 
-# ── 6. Storage ────────────────────────────────────────────────────────────────
-
-section("Storage")
-
-shared = os.path.expanduser("~/SharedFolder")
-base = os.path.expanduser("~/SharedFolder/MDAIE/group6")
-
+# Check COCO images
+n_imgs = sum(1 for f in PATHS.coco_train.glob("*.jpg")) if PATHS.coco_train.exists() else 0
 check(
-    label="~/SharedFolder exists",
-    condition=os.path.isdir(shared),
-    fail_msg="SharedFolder not found. Run: bash shared/scripts/setup_cluster.sh",
+    label=f"COCO images: {n_imgs:,} / 82,783",
+    condition=n_imgs >= 82783,
+    fail_msg="Run: bash shared/scripts/download_data.sh",
 )
 
-if os.path.isdir(shared):
-    test_file = os.path.join(base, ".env_check_tmp")
-    os.makedirs(base, exist_ok=True)
-    try:
-        with open(test_file, "w") as f:
-            f.write("test")
-        os.remove(test_file)
-        print(f"{PASS} ~/SharedFolder is writable")
-    except Exception:
-        print(f"{FAIL} ~/SharedFolder is not writable")
-        critical_failures.append("SharedFolder not writable")
-
-    free_gb = shutil.disk_usage(shared).free / 1e9
-    check(
-        label=f"~/SharedFolder free space: {free_gb:.1f} GB",
-        condition=free_gb >= 80,
-        fail_msg=(
-            f"Only {free_gb:.1f}GB free. Need ≥80GB "
-            "(dataset ~50GB + model ~14GB + checkpoints). "
-            "Clear old files from SharedFolder."
-        ),
-    )
-
-    required_dirs = [
-        "hf_cache",
-        "data",
-        "checkpoints/main",
-        "checkpoints/ablation",
-        "results/main",
-        "results/ablation",
-        "logs",
-    ]
-    for d in required_dirs:
-        full_path = os.path.join(base, d)
-        check(
-            label=f"~/SharedFolder/MDAIE/group6/{d}/ exists",
-            condition=os.path.isdir(full_path),
-            fail_msg=f"Run: mkdir -p ~/SharedFolder/MDAIE/group6/{d}",
-        )
-
-home = os.path.expanduser("~")
-home_free = shutil.disk_usage(home).free / 1e9
+# Storage space check on repo root
+free_gb = shutil.disk_usage(_repo_root).free / 1e9
 check(
-    label=f"~/home free space: {home_free:.1f} GB",
-    condition=home_free >= 10,
+    label=f"Disk free space: {free_gb:.1f} GB",
+    condition=free_gb >= 20,
     fail_msg=(
-        f"Home directory nearly full ({home_free:.1f}GB free). "
-        "Move large files to SharedFolder."
+        f"Only {free_gb:.1f}GB free. Need ≥20GB for COCO images + weights. "
+        "Check available space on this partition."
     ),
     critical=False,
 )
 
 
-# ── 7. Network ────────────────────────────────────────────────────────────────
+# ── 6. Network ────────────────────────────────────────────────────────────────
 
 section("Network")
 
@@ -323,10 +283,8 @@ if not critical_failures:
         print(f"\n Warnings ({len(warnings)}) — non-critical:")
         for w in warnings:
             print(f"   ⚠ {w}")
-        print("\n To fix warnings:")
-        print("   bash shared/scripts/setup_cluster.sh")
     print("\n Next step:")
-    print("   bash shared/scripts/start_training.sh main")
+    print("   bash shared/scripts/download_data.sh")
     print("=" * 55)
     sys.exit(0)
 
@@ -335,8 +293,7 @@ else:
     for i, f in enumerate(critical_failures, 1):
         print(f"   {i}. {f}")
     print("\n Fix by running:")
-    print("   bash shared/scripts/setup_cluster.sh")
-    print("   source ~/.bashrc")
+    print("   source shared/scripts/setup_cluster.sh")
     print("   python pipeline/stage_0_environment.py")
     print("=" * 55)
     sys.exit(1)
