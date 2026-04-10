@@ -86,7 +86,7 @@ class SpatialLLaVA(nn.Module):
             low_cpu_mem_usage=True,
             attn_implementation="flash_attention_2",
         )
-        self.backbone.gradient_checkpointing_enable()
+#       self.backbone.gradient_checkpointing_enable()  # disabled: enough VRAM
 
         if use_lora:
             # ── LoRA mode: inject adapters, freeze everything else ────
