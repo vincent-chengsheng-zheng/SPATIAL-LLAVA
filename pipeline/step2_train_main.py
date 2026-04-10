@@ -122,6 +122,7 @@ def train_one_epoch(
     criterion,
     device: str,
     epoch: int,
+    total_epochs: int,
     logger: Logger,
     log_every: int,
 ) -> Dict:
@@ -164,9 +165,26 @@ def train_one_epoch(
 
         if (step + 1) % log_every == 0:
             elapsed = time.time() - t0
+            step_done    = step + 1
+            total_steps  = len(loader)
+            epoch_pct    = step_done / total_steps * 100
+            overall_done = epoch * total_steps + step_done
+            overall_tot  = total_epochs * total_steps
+            overall_pct  = overall_done / overall_tot * 100
+
+            def _bar(pct, w=20):
+                f = int(w * pct / 100)
+                return f"[{'█'*f}{'░'*(w-f)}] {pct:5.1f}%"
+
+            sps         = step_done / elapsed
+            eta_epoch   = (total_steps - step_done) / sps
+            eta_overall = (overall_tot - overall_done) / sps
+
             logger.log(
-                f"  Epoch {epoch+1} | step {step+1}/{len(loader)} | "
-                f"loss={loss.item():.4f} | {elapsed:.1f}s"
+                f"  Epoch {epoch+1} | step {step_done}/{total_steps} | "
+                f"loss={loss.item():.4f} | {elapsed:.1f}s\n"
+                f"    Epoch   {_bar(epoch_pct)}  ETA: {eta_epoch/60:.1f}min\n"
+                f"    Overall {_bar(overall_pct)}  ETA: {eta_overall/60:.1f}min"
             )
 
     all_preds_t = torch.cat(all_preds, dim=0)
@@ -403,7 +421,7 @@ def main(args, model=None, processor=None):
         # Train
         train_metrics = train_one_epoch(
             model, train_loader, optimizer, criterion,
-            device, epoch, logger, args.log_every
+            device, epoch, args.epochs, logger, args.log_every
         )
         logger.log(
             f"  [Train] loss={train_metrics['train_loss']:.4f}  "
