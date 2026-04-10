@@ -78,7 +78,7 @@ DEFAULTS = {
     "epochs": 3,
     "batch_size": 4,
     "lr": 2e-4,
-    "weight_decay": 1e-2,
+    "weight_decay": 0.0,
     "max_length": 600,
     "num_workers": 2,
     "log_every": 200,

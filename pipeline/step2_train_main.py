@@ -49,7 +49,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
-from tqdm import tqdm
 
 import torch
 from torch.optim import AdamW
@@ -74,7 +73,7 @@ DEFAULTS = {
     "batch_size": 8,
     "lr": 2e-4,
     "lora_rank": 16,
-    "weight_decay": 1e-2,
+    "weight_decay": 0.0,
     "max_length": 128,
     "num_workers": 4,
     "log_every": 50,       # log loss every N batches
@@ -144,7 +143,7 @@ def train_one_epoch(
     all_targets: List[torch.Tensor] = []
     t0 = time.time()
 
-    for step, batch in enumerate(tqdm(loader, desc=f"Epoch {epoch+1}")):
+    for step, batch in enumerate(loader):
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         pixel_values = batch["pixel_values"].to(device)
@@ -207,7 +206,7 @@ def validate(
     all_texts: List[str] = []
 
     with torch.no_grad():
-        for batch in tqdm(loader, desc="Val", leave=False):
+        for batch in loader:
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             pixel_values = batch["pixel_values"].to(device)
@@ -325,7 +324,7 @@ def _single_iou(pred: torch.Tensor, target: torch.Tensor) -> float:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main(args, model=None, processor=None):
+def main(args):
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -352,10 +351,7 @@ def main(args, model=None, processor=None):
 
     # ── Model ─────────────────────────────────────────────────────────
     logger.log("[1/5] Loading model ...")
-    if model is None or processor is None:
-        model, processor = load_model(use_lora=True, device=device)
-    else:
-        logger.log("  Using pre-loaded model, skipping load.")
+    model, processor = load_model(use_lora=True, device=device)
 
     # ── Data ──────────────────────────────────────────────────────────
     logger.log("[2/5] Loading data ...")
