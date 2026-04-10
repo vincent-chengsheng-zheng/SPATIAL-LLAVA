@@ -375,7 +375,7 @@ def main(args, model=None, processor=None):
         weight_decay=args.weight_decay,
     )
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
-    criterion = SpatialLoss(w_smooth=1.0, w_iou=1.0)
+    criterion = SpatialLoss(w_l1=1.0, w_giou=1.0)
 
     # ── Checkpoint manager ────────────────────────────────────────────
     ckpt_mgr = CheckpointManager(ckpt_dir=PATHS.ckpt_main, config=config)
