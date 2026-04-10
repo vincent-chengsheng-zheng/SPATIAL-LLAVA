@@ -324,7 +324,7 @@ def _single_iou(pred: torch.Tensor, target: torch.Tensor) -> float:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main(args):
+def main(args, model=None, processor=None):
     set_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -351,7 +351,10 @@ def main(args):
 
     # ── Model ─────────────────────────────────────────────────────────
     logger.log("[1/5] Loading model ...")
-    model, processor = load_model(use_lora=True, device=device)
+    if model is None or processor is None:
+        model, processor = load_model(use_lora=True, device=device)
+    else:
+        logger.log("  Using pre-loaded model, skipping load.")
 
     # ── Data ──────────────────────────────────────────────────────────
     logger.log("[2/5] Loading data ...")
