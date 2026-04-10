@@ -79,16 +79,29 @@ else
     echo "  ❌ pkl  : not found in $DATA_DIR"
 fi
 
+# ── Check mode: just report status ───────────────────────────────────────────
 if [[ "$MODE" == "check" ]]; then
     echo ""
-    $PKL_OK && echo "✅ Ready to train!" && exit 0 || echo "❌ Not ready." && exit 1
+    IMGS_OK=false
+    [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]] && IMGS_OK=true
+    if $PKL_OK && $IMGS_OK; then
+        echo "✅ Ready to train!"
+        exit 0
+    else
+        echo "❌ Not ready."
+        exit 1
+    fi
 fi
 
+# ── Images and pkl are checked independently ──────────────────────────────────
+IMGS_OK=false
+[[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]] && IMGS_OK=true
+
+SKIP_PKL=false
 if $PKL_OK && [[ "$MODE" != "force" ]]; then
     echo ""
-    echo "✅ pkl files already exist. Nothing to do."
-    echo "Next: python pipeline/step2_train_main.py"
-    exit 0
+    echo "✅ pkl files already exist. Skipping pkl generation."
+    SKIP_PKL=true
 fi
 
 # ── Download COCO zip ─────────────────────────────────────────────────────────
@@ -96,8 +109,8 @@ echo ""
 echo "[1/3] COCO zip download..."
 mkdir -p "$COCO_TRAIN"
 
-if [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
-    echo "  ✅ Images already extracted, skipping download."
+if $IMGS_OK && [[ "$MODE" != "force" ]]; then
+    echo "  ✅ Images already extracted ($N_IMGS images), skipping download."
 elif [[ $ZIP_SIZE -eq $COCO_EXPECTED_SIZE ]]; then
     echo "  ✅ Zip already complete, skipping download."
 else
@@ -111,7 +124,7 @@ echo ""
 echo "[2/3] Extracting COCO images..."
 
 N_IMGS=$(count_imgs)
-if [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
+if $IMGS_OK && [[ "$MODE" != "force" ]]; then
     echo "  ✅ Already extracted: $N_IMGS images."
 else
     python3 - << EOF
@@ -148,21 +161,25 @@ EOF
     rm -f $TMP_ZIP
 fi
 
-# ── Preprocessing ─────────────────────────────────────────────────────────────
+# ── Preprocessing (skip if pkl already exists) ────────────────────────────────
 echo ""
 echo "[3/3] Preprocessing RefCOCO → pkl..."
-mkdir -p "$LOG_DIR"
 
-TIMESTAMP=$(date +%Y%m%d_%H%M)
-LOG_FILE="$LOG_DIR/stage1_${TIMESTAMP}.log"
+if $SKIP_PKL; then
+    echo "  ✅ pkl already exists, skipping preprocessing."
+else
+    mkdir -p "$LOG_DIR"
+    TIMESTAMP=$(date +%Y%m%d_%H%M)
+    LOG_FILE="$LOG_DIR/stage1_${TIMESTAMP}.log"
 
-cd "$REPO_DIR"
-python pipeline/stage_1_data_preparation.py \
-    --output_dir "$DATA_DIR" \
-    --coco_dir   "$COCO_DIR" \
-    --skip_coco_download \
-    $FORCE_FLAG \
-    2>&1 | tee "$LOG_FILE"
+    cd "$REPO_DIR"
+    python pipeline/stage_1_data_preparation.py \
+        --output_dir "$DATA_DIR" \
+        --coco_dir   "$COCO_DIR" \
+        --skip_coco_download \
+        $FORCE_FLAG \
+        2>&1 | tee "$LOG_FILE"
+fi
 
 # ── Final check ───────────────────────────────────────────────────────────────
 echo ""
@@ -180,6 +197,14 @@ for f in "$DATA_DIR/refcoco_train.pkl" \
     fi
 done
 
+N_IMGS=$(count_imgs)
+if [[ $N_IMGS -ge $COCO_EXPECTED_IMGS ]]; then
+    echo "  ✅ COCO images: $N_IMGS"
+else
+    echo "  ❌ COCO images: $N_IMGS / $COCO_EXPECTED_IMGS"
+    all_good=false
+fi
+
 echo ""
 if $all_good; then
     echo "======================================================"
@@ -187,6 +212,6 @@ if $all_good; then
     echo " Next: python pipeline/step2_train_main.py"
     echo "======================================================"
 else
-    echo "❌ Something failed. Log: $LOG_FILE"
+    echo "❌ Something failed."
     exit 1
 fi
