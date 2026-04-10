@@ -202,7 +202,7 @@ def make_loaders(
         shuffle=True,
         num_workers=num_workers,
         collate_fn=collate_fn,
-        pin_memory=True,
+        pin_memory=False,
         drop_last=True,
     )
     val_loader = DataLoader(
@@ -211,7 +211,7 @@ def make_loaders(
         shuffle=False,
         num_workers=num_workers,
         collate_fn=collate_fn,
-        pin_memory=True,
+        pin_memory=False,
     )
 
     print(
