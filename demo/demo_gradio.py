@@ -8,11 +8,10 @@ Gradio demo: side-by-side visual grounding comparison across 3 models.
 
 Run on cluster:
     cd /tmp/SPATIAL-LLAVA
-    pip install gradio --break-system-packages
     export TRANSFORMERS_OFFLINE=1
     python demo/demo_gradio.py
 
-Then open the public URL printed in the terminal (share=True).
+Then open: http://login2.gpucluster.sutd.edu.sg/user/1010719/vscode/proxy/7860/
 """
 
 import os
@@ -121,13 +120,11 @@ def draw_bbox(image: Image.Image, bbox: list, color: str, label: str) -> Image.I
     y1 = max(0, int((yc - h / 2) * H))
     x2 = min(W, int((xc + w / 2) * W))
     y2 = min(H, int((yc + h / 2) * H))
-
     for offset in range(3):
         draw.rectangle(
             [x1 - offset, y1 - offset, x2 + offset, y2 + offset],
             outline=color, width=1,
         )
-
     label_text = f" {label} "
     text_bbox  = draw.textbbox((x1, y1), label_text)
     text_h     = text_bbox[3] - text_bbox[1]
@@ -156,16 +153,28 @@ def compute_iou(pred: list, gt: list) -> float:
 # ── Gradio Logic ──────────────────────────────────────────────────────────────
 
 def predict(image, text, gt_x, gt_y, gt_w, gt_h):
+    print(f"[predict] called — image={'yes' if image is not None else 'None'}, text='{text}'")
+
     if image is None:
+        print("[predict] no image provided")
         return None, None, None, "Please upload an image."
     if not text or not text.strip():
+        print("[predict] no text provided")
         return None, None, None, "Please enter a text description."
 
     image = Image.fromarray(image).convert("RGB")
 
+    print("[predict] running baseline...")
     baseline_bbox, baseline_raw = run_baseline(image, text)
+    print(f"[predict] baseline done: {baseline_bbox}")
+
+    print("[predict] running ablation...")
     ablation_bbox = run_spatial(ablation_model, ablation_processor, image, text)
-    main_bbox     = run_spatial(main_model, main_processor, image, text)
+    print(f"[predict] ablation done: {ablation_bbox}")
+
+    print("[predict] running main...")
+    main_bbox = run_spatial(main_model, main_processor, image, text)
+    print(f"[predict] main done: {main_bbox}")
 
     img_baseline = draw_bbox(image, baseline_bbox, COLORS["Baseline"], "Baseline")
     img_ablation = draw_bbox(image, ablation_bbox, COLORS["Ablation"], "Ablation")
@@ -191,6 +200,7 @@ def predict(image, text, gt_x, gt_y, gt_w, gt_h):
         ]
 
     info += [f"", f"Baseline raw output: {baseline_raw}"]
+    print("[predict] done, returning results")
     return img_baseline, img_ablation, img_main, "\n".join(info)
 
 
@@ -256,3 +266,4 @@ if __name__ == "__main__":
         root_path="/user/1010719/vscode/proxy/7860",
         share=False,
     )
+    
