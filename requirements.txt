@@ -14,7 +14,7 @@ safetensors==0.7.0
 
 # ── Data processing ────────────────────────────────────────
 datasets==4.8.4
-Pillow-SIMD
+Pillow>=12.2.0
 opencv-python-headless==4.8.1.78
 tqdm==4.67.3
 pyyaml==6.0.1
@@ -38,4 +38,4 @@ scipy==1.17.1
 
 # flash-attn requires separate install:
 # pip install flash-attn --no-cache-dir --no-build-isolation
-gradio
+gradio>=5.0.0
