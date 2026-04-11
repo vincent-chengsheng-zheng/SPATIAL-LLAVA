@@ -179,9 +179,9 @@ def evaluate_spatial_model(logger, device, use_lora, ckpt_dir, name, batch_size=
 
             done = (step + 1) * batch_size
             if done % 400 == 0 or done >= total:
-                logger.log(f"  [{min(done,total)}/{total}] "
+                logger.log(f"  [{min(done,total)}/{total}] ({min(done,total)/total*100:.1f}%) "
                            f"elapsed={( time.time()-t0)/60:.1f}min")
-
+                
     preds_t   = torch.cat(all_preds,   dim=0)
     targets_t = torch.cat(all_targets, dim=0)
     metrics   = compute_all_metrics(preds_t, targets_t)
