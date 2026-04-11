@@ -146,7 +146,7 @@ def evaluate_spatial_model(logger, device, use_lora, ckpt_dir, name, batch_size=
     ckpt_path = Path(ckpt_dir) / "best.pth"
     logger.log(f"  Loading: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    model.load_state_dict(ckpt["model_state"])
     model.eval()
     logger.log(f"  Loaded epoch={ckpt.get('epoch','?')}")
 
