@@ -249,5 +249,10 @@ with gr.Blocks(title="Spatial-LLaVA Demo") as demo:
     )
 
 if __name__ == "__main__":
-    demo.launch(inline=True)
+    demo.launch(
+    server_name="0.0.0.0",
+    server_port=7860,
+    root_path="/user/jovyan/proxy/7860",
+    share=False,
+)
 
