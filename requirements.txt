@@ -14,16 +14,18 @@ safetensors==0.7.0
 
 # ── Data processing ────────────────────────────────────────
 datasets==4.8.4
-Pillow>=12.2.0
+Pillow>=10.4.0
 opencv-python-headless==4.8.1.78
 tqdm==4.67.3
 pyyaml==6.0.1
 numpy==1.26.4
 
 # ── Web / deployment ───────────────────────────────────────
-fastapi==0.104.1
+fastapi==0.115.5
+starlette==0.41.2
 uvicorn==0.24.0
-python-multipart==0.0.6
+python-multipart==0.0.26
+gradio==5.23.3
 
 # ── Dev / testing ──────────────────────────────────────────
 pytest==7.4.3
