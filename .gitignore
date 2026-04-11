@@ -34,8 +34,6 @@ results/coursework/examples/
 results/enterprise/examples/
 
 # ── LOGS (not tracked) ───────────────────────────────────────────────────────
-logs/
-*.log
 nohup.out
 
 # ── PYTHON ───────────────────────────────────────────────────────────────────

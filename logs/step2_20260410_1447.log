@@ -1,0 +1,23 @@
+[14:47:16] ============================================================
+[14:47:16]   Step 2: Train SpatialLLaVA (LLaVA + LoRA + Head)
+[14:47:16]   Config: {
+  "epochs": 1,
+  "batch_size": 32,
+  "lr": 0.0002,
+  "lora_rank": 16,
+  "weight_decay": 0.0,
+  "max_length": 600,
+  "seed": 42,
+  "use_lora": true,
+  "model": "llava-hf/llava-1.5-7b-hf"
+}
+[14:47:16] ============================================================
+[14:47:16] [1/5] Loading model ...
+[14:47:16]   Using pre-loaded model, skipping load.
+[14:47:16] [2/5] Loading data ...
+[14:47:20] [3/5] Setting up optimizer ...
+[14:47:20] [4/5] Training for 1 epochs ...
+[14:47:20] 
+========================================
+[14:47:20]   Epoch 1/1
+[14:47:20] ========================================

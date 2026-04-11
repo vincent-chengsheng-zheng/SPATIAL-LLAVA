@@ -1,0 +1,42 @@
+[01:35:44] ============================================================
+[01:35:44]   Step 3: Ablation — frozen backbone + head only
+[01:35:44]   Config: {
+  "epochs": 1,
+  "batch_size": 8,
+  "lr": 0.0002,
+  "weight_decay": 0.0,
+  "max_length": 600,
+  "seed": 42,
+  "use_lora": false,
+  "model": "llava-hf/llava-1.5-7b-hf"
+}
+[01:35:44] ============================================================
+[01:35:44] [1/5] Loading model ...
+[01:35:44]   Using pre-loaded model, skipping load.
+[01:35:44]   Trainable params: 2,230,020 (should be ~2.2M head only)
+[01:35:44] [2/5] Loading data ...
+[01:35:47] [3/5] Setting up optimizer ...
+[01:35:47] [4/5] Training for 1 epochs ...
+[01:35:47] 
+========================================
+[01:35:47]   Epoch 1/1
+[01:35:47] ========================================
+[01:35:53]   Epoch 1 | step 10/25 | loss=1.4618 | 5.4s
+    Epoch   [████████░░░░░░░░░░░░]  40.0%  ETA: 0.1min
+    Overall [████████░░░░░░░░░░░░]  40.0%  ETA: 0.1min
+[01:35:57]   Epoch 1 | step 20/25 | loss=1.5420 | 9.5s
+    Epoch   [████████████████░░░░]  80.0%  ETA: 0.0min
+    Overall [████████████████░░░░]  80.0%  ETA: 0.0min
+[01:35:59]   [Train] loss=1.5237  IoU=0.0869
+[01:36:02]   [Val] epoch=1  loss=1.5067  IoU=0.0981  RMSE=0.4994  MAE=0.4388
+[01:36:02]   LR → 1.00e-06
+[01:36:02] 
+[5/5] Saving results ...
+[01:36:02]   Saved metrics → /tmp/SPATIAL-LLAVA/results/ablation/metrics.json
+[01:36:02]   Saved predictions → /tmp/SPATIAL-LLAVA/results/ablation/predictions.json
+[01:36:02]   Saved 0 example PNGs → /tmp/SPATIAL-LLAVA/results/ablation/examples
+[01:36:02] 
+✅ Step 3 complete!
+[01:36:02]   Best val IoU  : 0.0981
+[01:36:02]   Checkpoint    : /tmp/SPATIAL-LLAVA/checkpoints/ablation/best.pth
+[01:36:02]   Results       : /tmp/SPATIAL-LLAVA/results/ablation

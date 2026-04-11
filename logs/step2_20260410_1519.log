@@ -1,0 +1,42 @@
+[15:19:48] ============================================================
+[15:19:48]   Step 2: Train SpatialLLaVA (LLaVA + LoRA + Head)
+[15:19:48]   Config: {
+  "epochs": 1,
+  "batch_size": 8,
+  "lr": 0.0002,
+  "lora_rank": 16,
+  "weight_decay": 0.0,
+  "max_length": 600,
+  "seed": 42,
+  "use_lora": true,
+  "model": "llava-hf/llava-1.5-7b-hf"
+}
+[15:19:48] ============================================================
+[15:19:48] [1/5] Loading model ...
+[15:19:48]   Using pre-loaded model, skipping load.
+[15:19:48] [2/5] Loading data ...
+[15:19:51] [3/5] Setting up optimizer ...
+[15:19:51] [4/5] Training for 1 epochs ...
+[15:19:51] 
+========================================
+[15:19:51]   Epoch 1/1
+[15:19:51] ========================================
+[15:20:06]   Epoch 1 | step 10/25 | loss=1.3742 | 14.7s
+    Epoch   [████████░░░░░░░░░░░░]  40.0%  ETA: 0.4min
+    Overall [████████░░░░░░░░░░░░]  40.0%  ETA: 0.4min
+[15:20:19]   Epoch 1 | step 20/25 | loss=1.5809 | 28.0s
+    Epoch   [████████████████░░░░]  80.0%  ETA: 0.1min
+    Overall [████████████████░░░░]  80.0%  ETA: 0.1min
+[15:20:26]   [Train] loss=1.5117  IoU=0.0842
+[15:20:29]   [Val] epoch=1  loss=1.5062  IoU=0.0900  RMSE=0.4934  MAE=0.4381
+[15:20:29]   LR → 1.00e-06
+[15:20:30] 
+[5/5] Saving results ...
+[15:20:30]   Saved metrics → /tmp/SPATIAL-LLAVA/results/main/metrics.json
+[15:20:30]   Saved predictions → /tmp/SPATIAL-LLAVA/results/main/predictions.json
+[15:20:30]   Saved 0 example PNGs → /tmp/SPATIAL-LLAVA/results/main/examples
+[15:20:30] 
+✅ Step 2 complete!
+[15:20:30]   Best val IoU  : 0.0900
+[15:20:30]   Checkpoint    : /tmp/SPATIAL-LLAVA/checkpoints/main/best.pth
+[15:20:30]   Results       : /tmp/SPATIAL-LLAVA/results/main
