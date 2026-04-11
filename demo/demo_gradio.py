@@ -252,7 +252,6 @@ if __name__ == "__main__":
     demo.launch(
     server_name="0.0.0.0",
     server_port=7860,
-    root_path="/user/jovyan/proxy/7860",
+    root_path="/user/1010719/vscode/proxy/7860",
     share=False,
 )
-
