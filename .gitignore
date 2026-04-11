@@ -24,14 +24,6 @@ transformers_cache/
 # ── CHECKPOINTS (large, not tracked) ─────────────────────────────────────────
 checkpoints/
 
-# ── RESULTS (tracked, important) ─────────────────────────────────────────────
-# Track metrics and predictions
-# Ignore example PNGs (too many, regenerable)
-results/baseline/examples/
-results/main/examples/
-results/ablation/examples/
-results/coursework/examples/
-results/enterprise/examples/
 
 # ── LOGS (not tracked) ───────────────────────────────────────────────────────
 nohup.out
