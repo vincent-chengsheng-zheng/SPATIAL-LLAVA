@@ -38,3 +38,4 @@ scipy==1.17.1
 
 # flash-attn requires separate install:
 # pip install flash-attn --no-cache-dir --no-build-isolation
+gradio
