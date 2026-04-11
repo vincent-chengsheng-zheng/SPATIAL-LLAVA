@@ -1,0 +1,27 @@
+{
+  "evaluated_on": "RefCOCO test split (1,975 samples)",
+  "timestamp": "2026-04-11T07:46:34.790165",
+  "results": {
+    "baseline": {
+      "iou": 0.09713008254766464,
+      "rmse": 0.28760525584220886,
+      "mae": 0.2381327599287033,
+      "parse_rate": 1.0
+    },
+    "ablation": {
+      "iou": 0.28432101011276245,
+      "rmse": 0.22375082969665527,
+      "mae": 0.17687128484249115
+    },
+    "main": {
+      "iou": 0.38610127568244934,
+      "rmse": 0.17191162705421448,
+      "mae": 0.1194143071770668
+    }
+  },
+  "improvements": {
+    "ablation_vs_baseline": "+192.7%",
+    "main_vs_baseline": "+297.5%",
+    "main_vs_ablation": "+35.8%"
+  }
+}
